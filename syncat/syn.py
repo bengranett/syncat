@@ -1,5 +1,6 @@
 import sys,os
 import numpy as N
+import logging
 
 import cPickle as pickle
 
@@ -72,47 +73,48 @@ class SimpleGMM:
 
 
 class Syn:
+	""" """
+	logger = logging.getLogger(__name__)
 
-	def __init__(self, logz = False, cachefile=None):
+	def __init__(self, cachefile=None):
 		""" Build synthetic datasets. """
+		self.fit_results = []
+
 		self.cachefile = cachefile
 
-		self.logz = logz
 		self.load(self.cachefile)
 
 	def load(self, path):
 		""" Load a cache file from a previous run. """
 		if path is not None and os.path.exists(path):
-			self.params = pickle.load(file(path))
-			self.dim = len(self.params[0])
+			self.fit_results = pickle.load(file(path))
 
 	def save(self, path=None):
 		""" Save a cache file. """
-		if path is None: path = self.cachefile
+		if path is None:
+			path = self.cachefile
 
 		dir = os.path.dirname(path)
-		if not os.path.exists(dir): os.mkdir(dir)
+		if not os.path.exists(dir):
+			os.mkdir(dir)
 
 		path = increment_path(path)
 
 		if os.path.exists(path):
-			print "File exists: %s.  Will not overwrite."%path
+			self.logger.warning("File exists: %s.  Will not overwrite.", path)
 		else:
-			print "> wrote",path
-			pickle.dump(self.params, file(path,'w'))
+			pickle.dump(self.fit_results, file(path,'w'))
+			self.logger.info("wrote %s", path)
 
 	def set(self, comp):
 		""" Build a GMM class with these components. """
-		print comp
 		G = SimpleGMM(comp)
 		dim = G.dim
 		mu = N.zeros(dim)
 		sig = N.ones(dim)
-		self.dim = dim
-		self.params = (mu,sig,G,-1,None)
-		print "dim=",dim
+		self.fit_results = [(mu,sig,G,-1,None)]
 
-	def fit(self, data, k=30, loops=10, labels=None):
+	def _fit(self, data, k=30, loops=10, labels=None):
 		""" Fit the data with a Gaussian mixture model.
 		Uses the sklearn.mixture.GMM routine.
 
@@ -131,22 +133,11 @@ class Syn:
 		None
 
 		"""
-		print "running gausian fit with %i components"%k
+		mu = N.mean(data, axis=0)
+		sig = N.std(data, axis=0)
 
-		# log z
-		if self.logz:
-			z = data[:,0]
-			assert(N.all(z>0))
-			datat = data.copy()
-			datat[:,0] = N.log(z)
-		else:
-			datat = data
-
-		# whiten data
-		mu = N.mean(datat, axis=0)
-		sig = N.std(datat, axis=0)
 		# print mu,sig
-		data_w = (datat - mu)/sig
+		data_w = (data - mu)/sig
 
 		best = None
 		best_aic = None
@@ -157,22 +148,69 @@ class Syn:
 			aic = G.aic(data_w)
 
 			if best_aic is None:
-				print i, "AIC %f"%G.aic(data_w)
+				self.logger.debug("loop %i, AIC %f", i, G.aic(data_w))
 			else:
-				print i, "AIC %f (best so far %f)"%(G.aic(data_w),best_aic)
+				self.logger.debug("loop %i, AIC %f (best so far %f)", i, G.aic(data_w), best_aic)
 
 			if best_aic is None or aic < best_aic:
 				best = G
 				best_aic = aic
 
 		if best == None:
-			print "dead! no good gmm fit was found!"
+			self.logger.error("dead! no good gmm fit was found!")
 			exit(-1)
 
 		G = best
 
-		self.dim = len(mu)
-		self.params = (mu, sig, G, best_aic, labels)
+		params = (mu, sig, G, best_aic, labels)
+
+		return params
+
+
+	def fit(self, data, batch_size=10000, k=30, loops=2, labels=None):
+		""" Fit the data with a Gaussian mixture model.
+		Uses the sklearn.mixture.GMM routine.
+
+		Parameters
+		----------
+		data : ndarray
+		k : int
+			number of components
+		loops : int
+			try a number of times and take the solution that maximizes the Akaike
+			criterion.
+		labels: list of column names
+
+		Output
+		------
+		None
+
+		"""
+		dim, n = data.shape
+		assert dim < n
+
+		try:
+			assert dim == self.dim
+		except AttributeError:
+			self.dim = dim
+
+		# adjust batch size so we have equal sized batches
+		nbatch = int(np.floor(n * 1. / batch_size))
+		batch_size = n // nbatch
+
+		self.logger.debug("data size %i", n)
+		self.logger.debug("Batch size %i", batch_size)
+
+		bins = np.arange(0, n, batch_size)
+		self.logger.debug("bins: %s", bins)
+
+		for i in bins:
+			j = i + batch_size
+			sub = data[:, i:j]
+
+			params = self._fit(sub, k, loops, labels)
+
+			self.fit_results.append(params)
 
 
 	def sample(self, n=1e5, random_state=None, save=None):
@@ -180,18 +218,19 @@ class Syn:
 		if save is not None:
 			save = increment_path(save)
 
-		mu, sig, G, best_aic, labels = self.params
+		nfits = len(self.fit_results)
+		batch = int(n * 1. / nfits)
 
-		print "generating data"
-		syndata = G.sample(int(n),random_state=random_state)
+		data_out = []
+		for fit in self.fit_results:
+			mu, sig, G, best_aic, labels = fit
 
-		syndata = syndata*sig + mu
+			syndata = G.sample(batch)
 
-		if self.logz:
-			syndata[:,0] = N.exp(syndata[:,0])
+			syndata = syndata * sig + mu
 
-		if save is not None:
-			N.save(save, syndata)
+			data_out.append(syndata)
 
-		print "done",syndata.shape
-		return syndata
+		data_out = np.hstack(data_out)
+
+		return data_out
