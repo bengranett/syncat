@@ -1,120 +1,86 @@
-import sys,os
-import numpy as N
+import sys, os
+import numpy as np
 import logging
+import time
 
 import cPickle as pickle
+from sklearn import mixture, decomposition
 
-from sklearn import mixture
-
+from pypelid.utils.config import Defaults, Param
 from pypelid.utils.misc import increment_path
 
-class SimpleGMM:
-	def __init__(self, components=[]):
-		""" Gaussian mixture model class """
 
-		self.means_ = []
-		self.covars_ = []
-		self.weights_ = []
-
-		for a,b,c in components:
-
-			b = N.array(b)
-			if b.size==len(b):
-				b = N.diag(b)
-
-			self.means_.append(a)
-			self.covars_.append(b)
-			self.weights_.append(c)
-
-		self.dim = len(self.means_[0])
-
-	def add(self, mu=0, cov=1, w=1):
-		""" Add a Gaussian component """
-		if self.dim is not None:
-			assert(len(mu)==self.dim)
-		else:
-			self.dim = len(mu)
-
-		cov = N.array(cov)
-		if cov.size==len(cov):
-			cov = N.diag(cov)
-
-		self.means_.append(mu)
-		self.covars_.append(cov)
-		self.weights_.append(w)
-
-	def sample(self, n, random_state=None):
-		""" Sample from the GMM """
-		N.random.seed(random_state)
-
-		norm = N.sum(self.weights_)
-		if norm==0:
-			print "weights are all 0!"
-			return
-		w = N.array(self.weights_)*1./norm
-
-		ncomp = len(w)
-
-		ii = N.random.choice(N.arange(ncomp), n, w)
-
-		m = N.bincount(ii)
-
-		samp = []
-		for i in range(ncomp):
-			s = N.random.multivariate_normal(self.means_[i],self.covars_[i],m[i])
-			samp.append(s)
-
-		samp = N.vstack(samp)
-
-		order = N.random.uniform(0,1,len(samp)).argsort()
-		samp = samp[order]
-
-		return samp
+class FitResults(object):
+	""" Data structure to store parameters of the fit. """
+	def __init__(self, **kwargs):
+		""" """
+		self.__dict__.update(kwargs)
 
 
 class Syn:
 	""" """
 	logger = logging.getLogger(__name__)
 
-	def __init__(self, cachefile=None):
+	_default_params = Defaults(
+		Param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix"),
+		Param('batch_size', metavar='n', default=10000, type=int, help="Fit in batches of this size", hidden=True),
+		Param('nloops', metavar='n', default=1, type=int, help="Number of times to repeat fit and take the best one"),
+		Param('apply_pca', default=False, action='store_true', help="Preprocess with PCA", hidden=True),
+		Param('covariance_mode', metavar='mode', default='diag', choices=['diag', 'full', 'tied', 'spherical'],
+			help="Mode for modelling the Gaussian components.", hidden=True),
+		Param('min_fit_size',metavar='n',  default=50, type=int, help="Minimimum size of dataset to do Gaussian fit", hidden=True),
+		Param('discreteness_count', metavar='n', default=20, type=int, help="If count of unique values is less than this, array is discrete", hidden=True),
+		Param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='?', help='values that will be treated as discrete.'),
+		Param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True),
+	)
+
+	def __init__(self, loadfile=None, labels=None, config={}, **kwargs):
 		""" Build synthetic datasets. """
+		self.config = config
+
+		# merge key,value arguments and config dict
+		for key, value in kwargs.items():
+			self.config[key] = value
+
+		# Add any parameters that are missing
+		for key, def_value in self._default_params.items():
+			try:
+				self.config[key]
+			except KeyError:
+				self.config[key] = def_value
+
+		self.labels = labels
+		self.loadfile = loadfile
+
 		self.fit_results = []
 
-		self.cachefile = cachefile
-
-		self.load(self.cachefile)
+		self.load(self.loadfile)
 
 	def load(self, path):
-		""" Load a cache file from a previous run. """
+		""" Load a catalogue model file from a previous run. """
 		if path is not None and os.path.exists(path):
-			self.fit_results = pickle.load(file(path))
+			self.labels, self.fit_results = pickle.load(file(path))
+			self.logger.info("Lodaed %s, got %i fit results.", path, len(self.fit_results))
 
 	def save(self, path=None):
-		""" Save a cache file. """
+		""" Save the catalogue model file. """
 		if path is None:
-			path = self.cachefile
+			path = self.loadfile
 
 		dir = os.path.dirname(path)
-		if not os.path.exists(dir):
-			os.mkdir(dir)
+		if dir != '':
+			if not os.path.exists(dir):
+				os.mkdir(dir)
 
 		path = increment_path(path)
 
 		if os.path.exists(path):
 			self.logger.warning("File exists: %s.  Will not overwrite.", path)
 		else:
-			pickle.dump(self.fit_results, file(path,'w'))
+			pickle.dump((self.labels, self.fit_results), file(path, 'w'))
 			self.logger.info("wrote %s", path)
 
-	def set(self, comp):
-		""" Build a GMM class with these components. """
-		G = SimpleGMM(comp)
-		dim = G.dim
-		mu = N.zeros(dim)
-		sig = N.ones(dim)
-		self.fit_results = [(mu,sig,G,-1,None)]
-
-	def _fit(self, data, k=30, loops=10, labels=None):
+	def _fit(self, data, k=30, loops=10):
 		""" Fit the data with a Gaussian mixture model.
 		Uses the sklearn.mixture.GMM routine.
 
@@ -126,48 +92,59 @@ class Syn:
 		loops : int
 			try a number of times and take the solution that maximizes the Akaike
 			criterion.
-		labels: list of column names
 
 		Output
 		------
 		None
 
 		"""
-		mu = N.mean(data, axis=0)
-		sig = N.std(data, axis=0)
+		# quick check on the array orientation
+		count, dim = data.shape
+		assert dim < count
 
-		# print mu,sig
-		data_w = (data - mu)/sig
+		# whiten the data
+		mu = np.mean(data, axis=0)
+		sig = np.std(data, axis=0)
+
+		# chcek that means are computed in each dim
+		assert len(mu) == dim
+
+		data_w = (data - mu) / sig
+
+		if self.config['apply_pca']:
+			# PCA rotation
+			pca = decomposition.PCA()
+			data_w = pca.fit_transform(data_w)
+		else:
+			pca = None
 
 		best = None
 		best_aic = None
+		aic = None
 		for i in range(loops):
-			G = mixture.GMM(n_components=k, covariance_type='full')
+			G = mixture.GMM(n_components=k, covariance_type=self.config['covariance_mode'])
 			G.fit(data_w)
-			if not G.converged_: continue
-			aic = G.aic(data_w)
+			if not G.converged_:
+				continue
 
-			if best_aic is None:
-				self.logger.debug("loop %i, AIC %f", i, G.aic(data_w))
-			else:
-				self.logger.debug("loop %i, AIC %f (best so far %f)", i, G.aic(data_w), best_aic)
+			if loops > 1:
+				aic = G.aic(data_w)
 
 			if best_aic is None or aic < best_aic:
 				best = G
 				best_aic = aic
 
-		if best == None:
-			self.logger.error("dead! no good gmm fit was found!")
-			exit(-1)
+		if best is None:
+			raise SynException("No good GMM fit was found!")
 
 		G = best
 
-		params = (mu, sig, G, best_aic, labels)
+		fit_results = FitResults(mu=mu, sigma=sig, gmm=G, best_aic=best_aic,
+								pca=pca, count=count)
 
-		return params
+		return fit_results
 
-
-	def fit(self, data, batch_size=10000, k=30, loops=2, labels=None):
+	def single_fit(self, data, insert_cmd=None):
 		""" Fit the data with a Gaussian mixture model.
 		Uses the sklearn.mixture.GMM routine.
 
@@ -179,58 +156,173 @@ class Syn:
 		loops : int
 			try a number of times and take the solution that maximizes the Akaike
 			criterion.
-		labels: list of column names
 
 		Output
 		------
 		None
 
 		"""
-		dim, n = data.shape
+		n, dim = data.shape
 		assert dim < n
 
+		# compute number of batches
+		nbatch = max(1, int(n * 1. / self.config['batch_size']))
+		assert nbatch >= 1
+
+		# log columns that are positive
+		logtransform = []
+		for i in range(data.shape[1]):
+			low, high = data[:, i].min(), data[:, i].max()
+			assert high > low
+			if low > 0 and high / low > self.config['log_crit']:
+				data[:, i] = np.log(data[:, i])
+
+				logtransform.append((np.exp, i))
+
+		bins = np.linspace(0, n, nbatch + 1).astype(int)
+
+		dt = 0
+		count = 0
+		for i, j in zip(bins[:-1], bins[1:]):
+			if count > 0:
+				t = dt / count
+			else:
+				t = 0
+
+			sub = data[i:j]
+
+			t0 = time.time()
+			fit = self._fit(sub, self.config['ncomponents'], self.config['nloops'])
+			dt += time.time() - t0
+			count += 1
+
+			fit.insert_cmd = insert_cmd
+			fit.transform = logtransform
+
+			self.fit_results.append(fit)
+
+	def _branch_fit(self, data, column=0, insert=[]):
+		""" """
+		n, dim = data.shape
+		assert dim < n
+
+		if column == dim:
+			self.fits_to_run.append((data, insert))
+			return
+
+		values = np.unique(data[:, column])
+		if len(values) < self.config['discreteness_count']:
+			discrete = True
+			special_values = values
+		else:
+			discrete = False
+			special_values = self.config['special_values']
+
+		unmatched = np.ones(n, dtype=bool)
+
+		for value in special_values:
+			matches = np.isclose(data[:, column], value)
+			unmatched[matches] = False
+
+			if np.sum(matches) > self.config['min_fit_size']:
+				data_z = np.delete(data[matches], column, axis=1)
+				ins_cmd = (column, value)
+				self._branch_fit(data_z, column, insert=insert + [ins_cmd])
+
+		# what remains after the discrete values
+		if np.sum(unmatched) > self.config['min_fit_size']:
+			data_nz = data[unmatched]
+			self._branch_fit(data[unmatched], column + 1, insert=insert)
+
+	def progress_bar(self):
+		""" """
+		if self.config['verbose'] < 1:
+			return
+
 		try:
-			assert dim == self.dim
+			t = time.time() - self._t0
 		except AttributeError:
-			self.dim = dim
+			t = 0
+			self._count = 0
+			self._t0 = time.time()
 
-		# adjust batch size so we have equal sized batches
-		nbatch = int(np.floor(n * 1. / batch_size))
-		batch_size = n // nbatch
+		self._count += 1
+		tot = t / self._count * self._fit_count
+		remaining = int(tot - t)
+		if t < 30:
+			remaining = "?"
+		sys.stderr.write("\r Working hard! %i of %i fits, elapsed time: %i sec, remaining: approx. %s sec." % (self._count, self._fit_count, t, remaining))
 
-		self.logger.debug("data size %i", n)
-		self.logger.debug("Batch size %i", batch_size)
+	def fit(self, data):
+		""" Fit the data with a Gaussian mixture model.
+		The data is partitioned to handle discrete columns and special values.
 
-		bins = np.arange(0, n, batch_size)
-		self.logger.debug("bins: %s", bins)
+		Parameters
+		----------
+		data : ndarray
+			catalogue data to fit. shape should be (nobj, dimension)
 
-		for i in bins:
-			j = i + batch_size
-			sub = data[:, i:j]
+		Output
+		------
+		None
+		"""
+		self.fits_to_run = []
+		self._branch_fit(data)
+		self._fit_count = len(self.fits_to_run)
 
-			params = self._fit(sub, k, loops, labels)
+		while True:
+			self.progress_bar()
+			try:
+				d, ins_cmd = self.fits_to_run.pop()
+			except IndexError:
+				break
+			self.single_fit(d, insert_cmd=ins_cmd)
 
-			self.fit_results.append(params)
+	def sample(self, n=1e5):
+		""" Draw samples from the model.
 
+		Parameters
+		----------
+		n : float
+			number of samples to draw
 
-	def sample(self, n=1e5, random_state=None, save=None):
-		""" Draw samples from the model. """
-		if save is not None:
-			save = increment_path(save)
+		Output
+		---------
+		ndarray : catalogue data array. shape: (n, dimension)
+		"""
 
-		nfits = len(self.fit_results)
-		batch = int(n * 1. / nfits)
+		if len(self.fit_results) == 0:
+			raise SynException("syn.fit() must be called before syn.sample()")
+
+		self.logger.info("drawing samples: n=%g", n)
+
+		total_count = 0
+		for fit in self.fit_results:
+			total_count += fit.count
 
 		data_out = []
 		for fit in self.fit_results:
-			mu, sig, G, best_aic, labels = fit
 
-			syndata = G.sample(batch)
+			# number of samples to draw
+			batch = int(fit.count * n * 1. / total_count)
 
-			syndata = syndata * sig + mu
+			syndata = fit.gmm.sample(batch)
+
+			if fit.pca is not None:
+				syndata = fit.pca.inverse_transform(syndata)
+
+			syndata = syndata * fit.sigma + fit.mu
+
+			for func, i in fit.transform:
+				syndata[:, i] = func(syndata[:, i])
+
+			if fit.insert_cmd is not None:
+				for cmd in fit.insert_cmd[::-1]:
+					syndata = np.insert(syndata, *cmd, axis=1)
 
 			data_out.append(syndata)
 
-		data_out = np.hstack(data_out)
+		return np.vstack(data_out)
 
-		return data_out
+class SynException(Exception):
+	pass
