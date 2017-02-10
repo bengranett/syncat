@@ -139,9 +139,9 @@ class SynCat(object):
 
             data['skycoord'] = np.transpose(sphere.sample_sphere(len(randoms)))
 
-            cat.update(data)
+            cat.load(data)
 
-            cat.update_attributes(name='SynCat')
+            cat.load_attributes(name='SynCat')
 
         self.logger.info("output saved to cat %s", self.config['out_cat'])
 
