@@ -37,13 +37,17 @@ class SynCat(object):
         Param('syn', default=False, action="store_true",
                         help="sample from the model and save output catalogue."),
 
-        Param('nsyn', alias='n', metavar='n', default=1e6, type=float, help="number of objects to synthesize"),
+        Param('nrandom', alias='n', metavar='n', default=1e6, type=float, help="number of objects to synthesize"),
 
         Param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored'),
 
         Param('verbose', alias='v', default=0, type=int, help='verbosity level'),
 
-        Param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run')
+        Param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run'),
+
+        Param('hints_file', default='in/syn_hints.txt', type=str, help='provide hints about parameter distributions'),
+
+        Param('overwrite', default=False, action='store_true', help='overwrite model fit')
     )
 
     _dependencies = [Syn]
@@ -63,6 +67,15 @@ class SynCat(object):
             except KeyError:
                 self.config[key] = def_value
 
+        if self.config['verbose'] == 0:
+            level = logging.CRITICAL
+        elif self.config['verbose'] == 1:
+            level = logging.INFO
+        else:
+            level = logging.DEBUG
+
+        logging.basicConfig(level=level)
+
         self.syn = None
 
     @staticmethod
@@ -70,17 +83,58 @@ class SynCat(object):
         """ """
         pass
 
-    def fit_catalogue(self):
+    def load_hints(self):
+        """ """
+        self.hints = {}
+
+        if os.path.exists(self.config['hints_file']):
+            for line in file(self.config['hints_file']):
+                line = line.strip()
+                if line == "": continue
+                if line.startswith("#"): continue
+
+                words = line.split()
+
+                instruction = None
+                low = None
+                high = None
+
+                name = words.pop(0)
+
+                if len(words) > 0:
+                    instruction = words.pop(0)
+
+                if len(words) > 0:
+                    low = float(words.pop(0))
+
+                if len(words) > 0:
+                    high = float(words.pop(0))
+
+                if instruction not in self.hints:
+                    self.hints[instruction] = []
+                self.hints[instruction].append((name, low, high))
+
+                self.logger.info("got hint for '%s': instruction is %s with range: %s, %s", name, instruction, low, high)
+
+        return self.hints
+
+    def fit_catalogue(self, filename=None):
         """ Initialize the galaxy model. """
 
-        if os.path.exists(self.config['cat_model']):
+        if filename is None:
+            filename = self.config['in_cat']
+
+        if os.path.exists(self.config['cat_model']) and not self.config['overwrite']:
             self.logger.info("reading %s", self.config['cat_model'])
             self.syn = Syn(self.config['cat_model'])
+            self.labels = self.syn.labels
             return
 
-        self.logger.info("loading %s", self.config['in_cat'])
+        hints = self.load_hints()
 
-        with CatalogueStore(self.config['in_cat']) as cat:
+        self.logger.info("loading %s", filename)
+
+        with CatalogueStore(filename) as cat:
 
             properties = []
             for name in cat._h5file.get_columns():
@@ -90,6 +144,7 @@ class SynCat(object):
                         hit = True
                         self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
                         break
+
                 if not hit:
                     properties.append(name)
 
@@ -99,7 +154,7 @@ class SynCat(object):
                     mesg += "\n{:>3} {}".format(1 + i, p)
                 self.logger.info("got these %i columns:%s", len(properties), mesg)
 
-            self.syn = Syn(labels=properties, config=self.config)
+            self.syn = Syn(labels=properties, hints=hints, config=self.config)
 
             for zone in cat:
                 batch = []
@@ -116,6 +171,9 @@ class SynCat(object):
                 if self.config['quick']:
                     break
 
+        # store column names
+        self.labels = properties
+
         # save catalogue model
         self.syn.save(self.config['cat_model'])
 
@@ -131,7 +189,7 @@ class SynCat(object):
         """
         with CatalogueStore(self.config['out_cat'], 'a', preallocate_file=False) as cat:
 
-            randoms = self.syn.sample(n=self.config['nsyn'])
+            randoms = self.syn.sample(n=self.config['nrandom'])
 
             data = {}
             for i, name in enumerate(self.syn.labels):

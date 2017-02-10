@@ -7,7 +7,7 @@ import cPickle as pickle
 from sklearn import mixture, decomposition
 
 from pypelid.utils.config import Defaults, Param
-from pypelid.utils.misc import increment_path
+from pypelid.utils.misc import increment_path, recarray
 
 
 class FitResults(object):
@@ -34,7 +34,7 @@ class Syn:
 		Param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True),
 	)
 
-	def __init__(self, loadfile=None, labels=None, config={}, **kwargs):
+	def __init__(self, loadfile=None, labels=None, hints={}, config={}, **kwargs):
 		""" Build synthetic datasets. """
 		self.config = config
 
@@ -54,12 +54,14 @@ class Syn:
 
 		self.fit_results = []
 
+		self.hints = hints
+
 		self.load(self.loadfile)
 
 	def load(self, path):
 		""" Load a catalogue model file from a previous run. """
 		if path is not None and os.path.exists(path):
-			self.labels, self.fit_results = pickle.load(file(path))
+			self.labels, self.fit_results, self.other_dists, self.hints = pickle.load(file(path))
 			self.logger.info("Lodaed %s, got %i fit results.", path, len(self.fit_results))
 
 	def save(self, path=None):
@@ -72,13 +74,13 @@ class Syn:
 			if not os.path.exists(dir):
 				os.mkdir(dir)
 
-		path = increment_path(path)
+		# path = increment_path(path)
 
-		if os.path.exists(path):
-			self.logger.warning("File exists: %s.  Will not overwrite.", path)
-		else:
-			pickle.dump((self.labels, self.fit_results), file(path, 'w'))
-			self.logger.info("wrote %s", path)
+		# if os.path.exists(path):
+			# self.logger.warning("File exists: %s.  Will not overwrite.", path)
+		# else:
+		pickle.dump((self.labels, self.fit_results, self.other_dists, self.hints), file(path, 'w'))
+		self.logger.info("wrote %s", path)
 
 	def _fit(self, data, k=30, loops=10):
 		""" Fit the data with a Gaussian mixture model.
@@ -144,7 +146,7 @@ class Syn:
 
 		return fit_results
 
-	def single_fit(self, data, insert_cmd=None):
+	def single_fit(self, data, labels=None, insert_cmd=None):
 		""" Fit the data with a Gaussian mixture model.
 		Uses the sklearn.mixture.GMM routine.
 
@@ -175,6 +177,7 @@ class Syn:
 			low, high = data[:, i].min(), data[:, i].max()
 			assert high > low
 			if low > 0 and high / low > self.config['log_crit']:
+				# self.logger.info("\nlog transform %s %s %s", labels[i], low, high)
 				data[:, i] = np.log(data[:, i])
 
 				logtransform.append((np.exp, i))
@@ -196,18 +199,19 @@ class Syn:
 			dt += time.time() - t0
 			count += 1
 
+			fit.labels = labels
 			fit.insert_cmd = insert_cmd
 			fit.transform = logtransform
 
 			self.fit_results.append(fit)
 
-	def _branch_fit(self, data, column=0, insert=[]):
+	def _branch_fit(self, data, labels, column=0, insert=[]):
 		""" """
 		n, dim = data.shape
 		assert dim < n
 
 		if column == dim:
-			self.fits_to_run.append((data, insert))
+			self.fits_to_run.append((data, labels, insert))
 			return
 
 		values = np.unique(data[:, column])
@@ -220,19 +224,23 @@ class Syn:
 
 		unmatched = np.ones(n, dtype=bool)
 
+		mu = np.abs(data[:, column]).mean()
+		tol = mu / 1e5
 		for value in special_values:
-			matches = np.isclose(data[:, column], value)
+			matches = np.isclose(data[:, column], value, equal_nan=True, atol=tol)
 			unmatched[matches] = False
 
 			if np.sum(matches) > self.config['min_fit_size']:
 				data_z = np.delete(data[matches], column, axis=1)
+				labels_cut = labels[:]
+				labels_cut.pop(column)
 				ins_cmd = (column, value)
-				self._branch_fit(data_z, column, insert=insert + [ins_cmd])
+				self._branch_fit(data_z, labels_cut, column, insert=insert + [ins_cmd])
 
 		# what remains after the discrete values
 		if np.sum(unmatched) > self.config['min_fit_size']:
 			data_nz = data[unmatched]
-			self._branch_fit(data[unmatched], column + 1, insert=insert)
+			self._branch_fit(data[unmatched], labels[:], column + 1, insert=insert)
 
 	def progress_bar(self):
 		""" """
@@ -249,11 +257,49 @@ class Syn:
 		self._count += 1
 		tot = t / self._count * self._fit_count
 		remaining = int(tot - t)
+		elapsed = "%i sec"%t
 		if t < 30:
 			remaining = "?"
-		sys.stderr.write("\r Working hard! %i of %i fits, elapsed time: %i sec, remaining: approx. %s sec." % (self._count, self._fit_count, t, remaining))
+			elapsed = "%i sec"%t
+			mesg = 'starting up...'
+		elif t < 60:
+			elapsed = "%g min"%(np.round(t/60.,1))
+			mesg = 'working hard!'
+		elif t < 180:
+			elapsed = "%g min"%(np.round(t/60.,1))
+			mesg = 'still working...'
+		else:
+			elapsed = "%g min"%(np.round(t/60.,1))
+			mesg = '%i bottles of beer on the wall...'%(self._fit_count - self._count)
 
-	def fit(self, data):
+		sys.stderr.write("\r%s done %i of %i fits, elapsed time: %s, remaining: approx. %s sec." % (mesg, self._count, self._fit_count, elapsed, remaining))
+
+	def process_hints(self, data):
+		""" """
+		_labels = self.labels[:]
+
+		self.other_dists = []
+
+		for instruction, hints in self.hints.items():
+			if instruction == 'uniform':
+				for hint in hints:
+					key = hint[0]
+					i = _labels.index(key)
+					_labels.pop(i)
+					data = np.delete(data, i, axis=1)
+					self.other_dists.append((instruction, i, hint))
+			elif instruction == 'smooth':
+				for hint in hints:
+					key = hint[0]
+					sigma = float(hint[1])
+					i = _labels.index(key)
+					self.logger.info("Smoothing %s sigma=%f", key, sigma)
+					data[:, i] += np.random.normal(0, sigma, data.shape[0])
+
+		return data, _labels
+
+
+	def fit(self, data_in):
 		""" Fit the data with a Gaussian mixture model.
 		The data is partitioned to handle discrete columns and special values.
 
@@ -266,17 +312,37 @@ class Syn:
 		------
 		None
 		"""
+		data, labels = self.process_hints(data_in[:])
+
 		self.fits_to_run = []
-		self._branch_fit(data)
-		self._fit_count = len(self.fits_to_run)
+		self._branch_fit(data, labels[:])
+
+		# for fit_info in self.fits_to_run:
+			# self._fit_count += fit_info[0].shape[0]
+
+ 		self._fit_count = len(self.fits_to_run)
 
 		while True:
 			self.progress_bar()
 			try:
-				d, ins_cmd = self.fits_to_run.pop()
+				d, labels, ins_cmd = self.fits_to_run.pop()
 			except IndexError:
 				break
-			self.single_fit(d, insert_cmd=ins_cmd)
+			self.single_fit(d, labels=labels, insert_cmd=ins_cmd)
+
+		if self.config['verbose'] > 0:
+			sys.stderr.write("\n")
+
+
+	def sample_dist(self, dist, hint, n):
+		""" """
+		if dist == 'uniform':
+			low, high = hint[1:3]
+			self.logger.info("random sampling from uniform distribution %s %s %s", low, high, n)
+			x = np.random.uniform(low, high, n)
+			return x
+
+		raise SynException("don't know how to sample from dist: %s", hint)
 
 	def sample(self, n=1e5):
 		""" Draw samples from the model.
@@ -300,29 +366,61 @@ class Syn:
 		for fit in self.fit_results:
 			total_count += fit.count
 
+		count = 0
 		data_out = []
-		for fit in self.fit_results:
+		while count < n:
+			for fit in self.fit_results:
 
-			# number of samples to draw
-			batch = int(fit.count * n * 1. / total_count)
+				# number of samples to draw
+				batch = int(np.round(fit.count * n * 1. / total_count))
 
-			syndata = fit.gmm.sample(batch)
+				syndata = []
+				count2 = 0
+				while count2 < batch:
+					sample = fit.gmm.sample(batch - count2)
 
-			if fit.pca is not None:
-				syndata = fit.pca.inverse_transform(syndata)
+					if fit.pca is not None:
+						sample = fit.pca.inverse_transform(sample)
 
-			syndata = syndata * fit.sigma + fit.mu
+					sample = sample * fit.sigma + fit.mu
 
-			for func, i in fit.transform:
-				syndata[:, i] = func(syndata[:, i])
+					for func, i in fit.transform:
+						sample[:, i] = func(sample[:, i])
 
-			if fit.insert_cmd is not None:
-				for cmd in fit.insert_cmd[::-1]:
-					syndata = np.insert(syndata, *cmd, axis=1)
+					if 'truncate' in self.hints:
+						for name, low, high in self.hints['truncate']:
+							try:
+								i = fit.labels.index(name)
+							except ValueError:
+								continue
+							select = np.where((sample[:, i] > low) & (sample[:, i] < high))
+							n_0 = len(sample)
+							sample = sample[select]
+							self.logger.debug("truncating %s %s %s: %i -> %i", name, low, high, n_0, len(sample))
 
-			data_out.append(syndata)
+					syndata.append(sample)
+					count2 += len(sample)
 
-		return np.vstack(data_out)
+				syndata = np.vstack(syndata)[:batch]
+
+				if fit.insert_cmd is not None:
+					for cmd in fit.insert_cmd[::-1]:
+						syndata = np.insert(syndata, *cmd, axis=1)
+
+				data_out.append(syndata)
+				count += len(syndata)
+				if count > n:
+					break
+
+		data_out = np.vstack(data_out)[:n]
+
+		for instruction, i, hint in self.other_dists[::-1]:
+			x = self.sample_dist(instruction, hint, data_out.shape[0])
+			data_out = np.insert(data_out, i, x, axis=1)
+
+		# data_out = misc.recarray(data_out)
+
+		return data_out
 
 class SynException(Exception):
 	pass
