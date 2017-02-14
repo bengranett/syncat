@@ -137,7 +137,7 @@ class SynCat(object):
         with CatalogueStore(filename) as cat:
 
             properties = []
-            for name in cat._h5file.get_columns():
+            for name in cat.columns:
                 hit = False
                 for skip in self.config['skip']:
                     if skip.lower() in name.lower():
@@ -202,6 +202,43 @@ class SynCat(object):
             cat.load_attributes(name='SynCat')
 
         self.logger.info("output saved to cat %s", self.config['out_cat'])
+
+    def shuffle_catalogue(self, filename=None):
+        """ shuffle catalogue. """
+
+        if filename is None:
+            filename = self.config['in_cat']
+
+        self.logger.info("loading %s", filename)
+
+        if self.config['overwrite']:
+            if os.path.exists(self.config['out_cat']):
+                self.logger.info("overwriting existing catalogue: %s", self.config['out_cat'])
+                os.unlink(self.config['out_cat'])
+
+        with CatalogueStore(self.config['out_cat'], 'w', preallocate_file=False) as output:
+
+            store = CatalogueStore(filename)
+
+            factor = self.config['nrandom'] * 1. / store.count
+
+            for cat in store:
+                # loop through zones
+
+                n = np.int(np.round(len(cat) * factor))
+
+                data = np.random.choice(cat._data, size=n, replace=True)
+
+                data['skycoord'] = np.transpose(sphere.sample_sphere(len(data)))
+
+                output.load(data)
+
+            store.close()
+
+            count = output.count
+
+        self.logger.info("Wrote shuffled catalogue nobj=%i: %s", count, self.config['out_cat'])
+
 
     def run(self):
         """ Run visibilty mask pipeline.
