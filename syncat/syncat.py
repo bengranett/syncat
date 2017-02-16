@@ -12,6 +12,7 @@ import numpy as np
 from pypelid.utils import misc
 from pypelid.vm.syn import Syn
 from pypelid.sky.catalogue_store import CatalogueStore
+from pypelid.survey.mask import Mask
 from pypelid.utils.config import Config, Defaults, Param
 from pypelid.utils import sphere
 
@@ -19,276 +20,327 @@ import time
 
 
 class SynCat(object):
-    """ SynCat """
-    logger = logging.getLogger(__name__)
+	""" SynCat """
+	logger = logging.getLogger(__name__)
 
-    # default parameters will be copied in if missing
-    _default_params = Defaults(
+	# default parameters will be copied in if missing
+	_default_params = Defaults(
 
-        Param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog'),
+		Param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog'),
 
-        Param("out_cat", metavar='filename', default='out/syn.pypelid.hdf5', type=str, help='catalog file to write'),
+		Param("out_cat", metavar='filename', default='out/syn.pypelid.hdf5', type=str, help='catalog file to write'),
 
-        Param("cat_model", metavar='filename', default='out/syn.pickle', type=str, help='file with catalogue model to load'),
+		Param("cat_model", metavar='filename', default='out/syn.pickle', type=str, help='file with catalogue model to load'),
 
-        Param('fit', default=False, action="store_true",
-                        help="fit a catalogue model and save to file."),
+		Param('mask_file', default=None, type=str, help='load pypelid mask file to specify survey geometry'),
 
-        Param('syn', default=False, action="store_true",
-                        help="sample from the model and save output catalogue."),
+		Param('fit', default=False, action="store_true",
+						help="fit a catalogue model and save to file."),
 
-        Param('nrandom', alias='n', metavar='n', default=1e6, type=float, help="number of objects to synthesize"),
+		Param('syn', default=False, action="store_true",
+						help="sample from the model and save output catalogue."),
 
-        Param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored'),
+		Param('density', metavar='x', default=None, type=float, help="number density of objects to synthesize (n/sqr deg)"),
 
-        Param('verbose', alias='v', default=0, type=int, help='verbosity level'),
+		Param('count', alias='n', metavar='n', default=None, type=float, help="number of objects to synthesize"),
 
-        Param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run'),
+		Param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored'),
 
-        Param('hints_file', default='in/syn_hints.txt', type=str, help='provide hints about parameter distributions'),
+		Param('add_columns', metavar='name', default=[], nargs='?', help='add these columns with zeros if they are present in input catalogue'),
 
-        Param('overwrite', default=False, action='store_true', help='overwrite model fit')
-    )
+		Param('sample_sky', default=True, action='store_true', help='sample sky coordinates'),
 
-    _dependencies = [Syn]
+		Param('skycoord_name', default='skycoord', help='column name to use for sky coordinates'),
 
-    def __init__(self, config={}, **args):
-        """ """
-        self.config = config
+		Param('verbose', alias='v', default=0, type=int, help='verbosity level'),
 
-        # merge key,value arguments and config dict
-        for key, value in args.items():
-            self.config[key] = value
+		Param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run'),
 
-        # Add any parameters that are missing
-        for key, def_value in self._default_params.items():
-            try:
-                self.config[key]
-            except KeyError:
-                self.config[key] = def_value
+		Param('hints_file', default='in/syn_hints.txt', type=str, help='provide hints about parameter distributions'),
 
-        if self.config['verbose'] == 0:
-            level = logging.CRITICAL
-        elif self.config['verbose'] == 1:
-            level = logging.INFO
-        else:
-            level = logging.DEBUG
+		Param('overwrite', default=False, action='store_true', help='overwrite model fit')
+	)
 
-        logging.basicConfig(level=level)
+	_dependencies = [Syn]
 
-        self.syn = None
+	skycoord_type = np.dtype((np.float64, 2))
 
-    @staticmethod
-    def check_config(config):
-        """ """
-        pass
+	def __init__(self, config={}, **args):
+		""" """
+		self.config = config
 
-    def load_hints(self):
-        """ """
-        self.hints = {}
+		# merge key,value arguments and config dict
+		for key, value in args.items():
+			self.config[key] = value
 
-        if os.path.exists(self.config['hints_file']):
-            for line in file(self.config['hints_file']):
-                line = line.strip()
-                if line == "": continue
-                if line.startswith("#"): continue
+		# Add any parameters that are missing
+		for key, def_value in self._default_params.items():
+			try:
+				self.config[key]
+			except KeyError:
+				self.config[key] = def_value
 
-                words = line.split()
+		if self.config['verbose'] == 0:
+			level = logging.CRITICAL
+		elif self.config['verbose'] == 1:
+			level = logging.INFO
+		else:
+			level = logging.DEBUG
 
-                instruction = None
-                low = None
-                high = None
+		logging.basicConfig(level=level)
 
-                name = words.pop(0)
+		self.syn = None
 
-                if len(words) > 0:
-                    instruction = words.pop(0)
+		self.mask = Mask()
+		if os.path.exists(self.config['mask_file']):
+			self.logger.info("loading mask file %s", self.config['mask_file'])
+			self.mask.load(self.config['mask_file'])
+		else:
+			self.logger.info("no mask file.  full sky")
 
-                if len(words) > 0:
-                    low = float(words.pop(0))
+	@staticmethod
+	def check_config(config):
+		""" """
+		if config['density'] is None and config['count'] is None:
+			raise Exception("must specify either density or count")
 
-                if len(words) > 0:
-                    high = float(words.pop(0))
+		if config['density'] is not None and config['count'] is not None:
+			raise Exception("must specify either density or count (not both)")
 
-                if instruction not in self.hints:
-                    self.hints[instruction] = []
-                self.hints[instruction].append((name, low, high))
+		if config['density'] is not None and config['mask_file'] is None:
+			raise Exception("a mask file is needed for density mode")
 
-                self.logger.info("got hint for '%s': instruction is %s with range: %s, %s", name, instruction, low, high)
+		if config['density'] is not None and config['sample_sky'] is None:
+			raise Exception("sample_sky must be True in density mode")
 
-        return self.hints
 
-    def fit_catalogue(self, filename=None):
-        """ Initialize the galaxy model. """
+	def load_hints(self):
+		""" """
+		self.hints = {}
 
-        if filename is None:
-            filename = self.config['in_cat']
+		if os.path.exists(self.config['hints_file']):
+			for line in file(self.config['hints_file']):
+				line = line.strip()
+				if line == "": continue
+				if line.startswith("#"): continue
 
-        if os.path.exists(self.config['cat_model']) and not self.config['overwrite']:
-            self.logger.info("reading %s", self.config['cat_model'])
-            self.syn = Syn(self.config['cat_model'])
-            self.labels = self.syn.labels
-            return
+				words = line.split()
 
-        hints = self.load_hints()
+				instruction = None
+				low = None
+				high = None
 
-        self.logger.info("loading %s", filename)
+				name = words.pop(0)
 
-        with CatalogueStore(filename) as store:
+				if len(words) > 0:
+					instruction = words.pop(0)
 
-            properties = []
-            for name in store.columns:
-                hit = False
-                for skip in self.config['skip']:
-                    if skip.lower() in name.lower():
-                        hit = True
-                        self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
-                        break
+				if len(words) > 0:
+					low = float(words.pop(0))
 
-                if not hit:
-                    properties.append(name)
+				if len(words) > 0:
+					high = float(words.pop(0))
 
-            if self.logger.isEnabledFor(logging.INFO):
-                mesg = ""
-                for i, p in enumerate(properties):
-                    mesg += "\n{:>3} {}".format(1 + i, p)
-                self.logger.info("got these %i columns:%s", len(properties), mesg)
+				if instruction not in self.hints:
+					self.hints[instruction] = []
+				self.hints[instruction].append((name, low, high))
 
-            self.syn = Syn(labels=properties, hints=hints, config=self.config)
+				self.logger.info("got hint for '%s': instruction is %s with range: %s, %s", name, instruction, low, high)
 
-            for zone in store.get_zones():
-                batch = store.to_structured_array(columns=properties, zones=[zone])
+		return self.hints
 
-                if self.config['quick']:
-                    batch = batch[:10000]
+	def sample_sky(self, zone=None, nside=None, order=None):
+		""" """
+		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+															cell=zone, nside=nside))
 
-                self.syn.fit(batch)
+	def fit_catalogue(self, filename=None):
+		""" Initialize the galaxy model. """
 
-                if self.config['quick']:
-                    break
+		if filename is None:
+			filename = self.config['in_cat']
 
-        # store column names
-        self.labels = properties
+		if os.path.exists(self.config['cat_model']) and not self.config['overwrite']:
+			self.logger.info("reading %s", self.config['cat_model'])
+			self.syn = Syn(self.config['cat_model'])
+			self.labels = self.syn.labels
+			return
 
-        # save catalogue model
-        self.syn.save(self.config['cat_model'])
+		hints = self.load_hints()
 
-    def build_catalogue(self):
-        """ Build random catalogue.
+		self.logger.info("loading %s", filename)
 
-        Parameters
-        ----------
+		with CatalogueStore(filename) as store:
 
-        Returns
-        -------
-        dictionary : catalog
-        """
-        with CatalogueStore(self.config['out_cat'], 'a', preallocate_file=False) as cat:
+			other_dtypes = {}
+			properties = []
+			for name in store.columns:
+				hit = False
+				for skip in self.config['skip']:
+					if skip.lower() in name.lower():
+						hit = True
+						self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
+						other_dtypes[name] = np.dtype([(name.encode('ascii'), store.dtype[name])])
+						break
 
-            randoms = self.syn.sample(n=self.config['nrandom'])
+				if not hit:
+					properties.append(name)
 
-            data = {}
-            for i, name in enumerate(self.syn.labels):
-                data[name] = randoms[:, i]
+			if self.logger.isEnabledFor(logging.INFO):
+				mesg = ""
+				for i, p in enumerate(properties):
+					mesg += "\n{:>3} {}".format(1 + i, p)
+				self.logger.info("got these %i columns:%s", len(properties), mesg)
 
-            data['skycoord'] = np.transpose(sphere.sample_sphere(len(randoms)))
+			self.syn = Syn(labels=properties, hints=hints, config=self.config)
 
-            cat.load(data)
+			if self.config['sample_sky']:
+				skycoord_dtype = np.dtype([(self.config['skycoord_name'], self.skycoord_type)])
 
-            cat.load_attributes(name='SynCat')
+			for zone in store.get_zones():
+				batch = store.to_structured_array(columns=properties, zones=[zone])
 
-        self.logger.info("output saved to cat %s", self.config['out_cat'])
+				dtype = batch.dtype
+				for name in self.config['add_columns']:
+					try:
+						dtype = misc.concatenate_dtypes([dtype, other_dtypes[name]])
+					except KeyError:
+						pass
 
-    def shuffle_catalogue(self, filename=None):
-        """ shuffle catalogue. """
+				if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
+					dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
 
-        if filename is None:
-            filename = self.config['in_cat']
+				if self.config['quick']:
+					batch = batch[:10000]
 
-        self.logger.info("loading %s", filename)
+				self.syn.fit(batch, dtype=dtype)
 
-        if self.config['overwrite']:
-            if os.path.exists(self.config['out_cat']):
-                self.logger.info("overwriting existing catalogue: %s", self.config['out_cat'])
-                os.unlink(self.config['out_cat'])
+				if self.config['quick']:
+					break
 
-        with CatalogueStore(self.config['out_cat'], 'w', preallocate_file=False) as output:
+		# store column names
+		self.labels = properties
 
-            store = CatalogueStore(filename)
+		# save catalogue model
+		self.syn.save(self.config['cat_model'])
 
-            factor = self.config['nrandom'] * 1. / store.count
+	def build_catalogue(self):
+		""" Build random catalogue.
 
-            for cat in store:
-                # loop through zones
+		Parameters
+		----------
 
-                n = np.int(np.round(len(cat) * factor))
+		Returns
+		-------
+		dictionary : catalog
+		"""
+		if self.config['sample_sky']:
+			skycoord = self.sample_sky()
+			count = len(skycoord)
+		else:
+			count = self.config['count']
 
-                data = np.random.choice(cat._data, size=n, replace=True)
+		with CatalogueStore(self.config['out_cat'], 'a', preallocate_file=False) as cat:
 
-                data['skycoord'] = np.transpose(sphere.sample_sphere(len(data)))
+			randoms = self.syn.sample(n=count)
 
-                output.load(data)
+			if self.config['sample_sky']:
+				randoms[self.config['skycoord_name']] = skycoord
 
-            store.close()
+			cat.load(data)
 
-            count = output.count
+			cat.load_attributes(name='SynCat')
 
-        self.logger.info("Wrote shuffled catalogue nobj=%i: %s", count, self.config['out_cat'])
+		self.logger.info("output saved to cat %s", self.config['out_cat'])
 
+	def shuffle_catalogue(self, filename=None):
+		""" shuffle catalogue. """
 
-    def run(self):
-        """ Run visibilty mask pipeline.
+		if filename is None:
+			filename = self.config['in_cat']
 
-        Parameters
-        ----------
+		self.logger.info("loading %s", filename)
 
-        Returns
-        -------
-        """
-        if self.config['fit']:
-            self.fit_catalogue()
+		if self.config['overwrite']:
+			if os.path.exists(self.config['out_cat']):
+				self.logger.info("overwriting existing catalogue: %s", self.config['out_cat'])
+				os.unlink(self.config['out_cat'])
 
-        if self.config['syn']:
-            if self.syn is None:
-                if not os.path.exists(self.config['cat_model']):
-                    self.logger.error("Cannot load catalogue model.  Files does not exist: %s", self.config['cat_model'])
-                    sys.exit(1)
-                self.syn = Syn(self.config['cat_model'])
-            self.build_catalogue()
+		# load full catalogue to shuffle
+		data = CatalogueStore(filename).to_structured_array()
+
+		with CatalogueStore(self.config['out_cat'], 'w', preallocate_file=False) as output:
+
+			for zone in np.arange(output._hp_projector.npix):
+				# loop through zones in output
+				skycoord = self.sample_sky(zone=zone, nside=output._hp_projector.nside)
+
+				if len(skycoord) == 0:
+					continue
+
+				data_out = np.random.choice(data, size=len(skycoord), replace=True)
+
+				data_out[self.config['skycoord_name']] = skycoord
+
+				output.load(data_out)
+
+			count = output.count
+
+		self.logger.info("Wrote shuffled catalogue nobj=%i: %s", count, self.config['out_cat'])
+
+	def run(self):
+		""" Run visibilty mask pipeline.
+
+		Parameters
+		----------
+
+		Returns
+		-------
+		"""
+		if self.config['fit']:
+			self.fit_catalogue()
+
+		if self.config['syn']:
+			if self.syn is None:
+				if not os.path.exists(self.config['cat_model']):
+					self.logger.error("Cannot load catalogue model.  Files does not exist: %s", self.config['cat_model'])
+					sys.exit(1)
+				self.syn = Syn(self.config['cat_model'])
+			self.build_catalogue()
 
 
 def main(args=None):
-    """ Main routine so can have other entry points """
+	""" Main routine so can have other entry points """
 
-    # access configuration:
-    tagline = 'SynCat synthesizes catalogs'
+	# access configuration:
+	tagline = 'SynCat synthesizes catalogs'
 
-    config = Config([SynCat], description=tagline)
+	config = Config([SynCat], description=tagline)
 
-    if config['verbose'] == 0:
-        level = logging.CRITICAL
-    elif config['verbose'] == 1:
-        level = logging.INFO
-    else:
-        level = logging.DEBUG
+	if config['verbose'] == 0:
+		level = logging.CRITICAL
+	elif config['verbose'] == 1:
+		level = logging.INFO
+	else:
+		level = logging.DEBUG
 
-    logging.basicConfig(level=level)
+	logging.basicConfig(level=level)
 
-    banner = "~"*70+"\n{:^70}\n".format(tagline)+"~"*70
-    logging.info("\n" + banner)
-    logging.info(config)
+	banner = "~"*70+"\n{:^70}\n".format(tagline)+"~"*70
+	logging.info("\n" + banner)
+	logging.info(config)
 
-    # Get code version
-    git = misc.GitEnv()
+	# Get code version
+	git = misc.GitEnv()
 
-    # Run code
-    try:
-        S = SynCat(config)
-        S.run()
-    except Exception as e:
-        raise
-        print >>sys.stderr, traceback.format_exc()
-        logging.debug(misc.GitEnv())
+	# Run code
+	try:
+		S = SynCat(config)
+		S.run()
+	except Exception as e:
+		raise
+		print >>sys.stderr, traceback.format_exc()
+		logging.debug(misc.GitEnv())
 
 if __name__ == '__main__':
-    main()
+	main()

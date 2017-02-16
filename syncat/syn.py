@@ -95,7 +95,7 @@ class Syn:
 	def load(self, path):
 		""" Load a catalogue model file from a previous run. """
 		if path is not None and os.path.exists(path):
-			self.labels, self.fit_results, self.other_dists, self.hints = pickle.load(file(path))
+			self.labels, self.fit_results, self.other_dists, self.hints, self.dtype = pickle.load(file(path))
 			self.logger.info("Lodaed %s, got %i fit results.", path, len(self.fit_results))
 
 	def save(self, path=None):
@@ -339,7 +339,7 @@ class Syn:
 		return data, _labels
 
 
-	def fit(self, data_in):
+	def fit(self, data_in, dtype=None):
 		""" Fit the data with a Gaussian mixture model.
 		The data is partitioned to handle discrete columns and special values.
 
@@ -352,7 +352,10 @@ class Syn:
 		------
 		None
 		"""
-		self.dtype = data_in.dtype
+		if dtype is None:
+			self.dtype = data_in.dtype
+		else:
+			self.dtype = dtype
 
 		data = flatten_struc_array(data_in)
 
