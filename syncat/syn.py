@@ -7,7 +7,41 @@ import cPickle as pickle
 from sklearn import mixture, decomposition
 
 from pypelid.utils.config import Defaults, Param
-from pypelid.utils.misc import increment_path, recarray
+from pypelid.utils.misc import increment_path, flatten_struc_array
+import pypelid.utils.misc as misc
+
+
+def struc_array_insert(arr, data, labels, index=0, truncate=True):
+	""" Insert data into a structured array.
+
+	Parameters
+	----------
+	arr : numpy structured array
+		structured array to insert into
+	data : numpy ndarray
+		array of values to insert
+	labels : sequence
+		column names corresponding to data
+
+	Returns
+	---------
+	int : number of elements inserted
+	"""
+	assert len(data.shape) == 2
+
+	j = index + len(data)
+	if j > len(arr):
+		if not truncate:
+			raise ValueError("data array too large to fit in structured array.")
+		j = len(arr)
+		sub = data[: j - index]
+	else:
+		sub = data
+
+	for i, name in enumerate(labels):
+		arr[name][index:j] = sub[:, i]
+
+	return len(sub)
 
 
 class FitResults(object):
@@ -79,7 +113,7 @@ class Syn:
 		# if os.path.exists(path):
 			# self.logger.warning("File exists: %s.  Will not overwrite.", path)
 		# else:
-		pickle.dump((self.labels, self.fit_results, self.other_dists, self.hints), file(path, 'w'))
+		pickle.dump((self.labels, self.fit_results, self.other_dists, self.hints, self.dtype), file(path, 'w'))
 		self.logger.info("wrote %s", path)
 
 	def _fit(self, data, k=30, loops=10):
@@ -214,27 +248,33 @@ class Syn:
 			self.fits_to_run.append((data, labels, insert))
 			return
 
+		# determine if the array has discrete values
 		values = np.unique(data[:, column])
 		if len(values) < self.config['discreteness_count']:
 			discrete = True
 			special_values = values
 		else:
+			# otherwise us a list of default special values eg 0, -99, nan,...
 			discrete = False
 			special_values = self.config['special_values']
 
 		unmatched = np.ones(n, dtype=bool)
 
+		# compute absolute tolerance for equality
 		mu = np.abs(data[:, column]).mean()
 		tol = mu / 1e5
 		for value in special_values:
+			# find special values in the array
 			matches = np.isclose(data[:, column], value, equal_nan=True, atol=tol)
 			unmatched[matches] = False
 
 			if np.sum(matches) > self.config['min_fit_size']:
+				# there is a sufficient number left to fit
+				# remove column with discrete value
 				data_z = np.delete(data[matches], column, axis=1)
 				labels_cut = labels[:]
-				labels_cut.pop(column)
-				ins_cmd = (column, value)
+				name = labels_cut.pop(column)
+				ins_cmd = (name, value)
 				self._branch_fit(data_z, labels_cut, column, insert=insert + [ins_cmd])
 
 		# what remains after the discrete values
@@ -287,7 +327,7 @@ class Syn:
 					i = _labels.index(key)
 					_labels.pop(i)
 					data = np.delete(data, i, axis=1)
-					self.other_dists.append((instruction, i, hint))
+					self.other_dists.append((instruction, key, hint))
 			elif instruction == 'smooth':
 				for hint in hints:
 					key = hint[0]
@@ -312,7 +352,11 @@ class Syn:
 		------
 		None
 		"""
-		data, labels = self.process_hints(data_in[:])
+		self.dtype = data_in.dtype
+
+		data = flatten_struc_array(data_in)
+
+		data, labels = self.process_hints(data)
 
 		self.fits_to_run = []
 		self._branch_fit(data, labels[:])
@@ -320,7 +364,7 @@ class Syn:
 		# for fit_info in self.fits_to_run:
 			# self._fit_count += fit_info[0].shape[0]
 
- 		self._fit_count = len(self.fits_to_run)
+		self._fit_count = len(self.fits_to_run)
 
 		while True:
 			self.progress_bar()
@@ -366,18 +410,20 @@ class Syn:
 		for fit in self.fit_results:
 			total_count += fit.count
 
-		count = 0
-		data_out = []
-		while count < n:
+		count_total = 0
+
+		syndata = np.zeros(n, dtype=self.dtype)
+
+		while count_total < n:
 			for fit in self.fit_results:
 
 				# number of samples to draw
 				batch = int(np.round(fit.count * n * 1. / total_count))
 
-				syndata = []
-				count2 = 0
-				while count2 < batch:
-					sample = fit.gmm.sample(batch - count2)
+				start = count_total
+				count = 0
+				while count < batch:
+					sample = fit.gmm.sample(batch - count)
 
 					if fit.pca is not None:
 						sample = fit.pca.inverse_transform(sample)
@@ -398,29 +444,30 @@ class Syn:
 							sample = sample[select]
 							self.logger.debug("truncating %s %s %s: %i -> %i", name, low, high, n_0, len(sample))
 
-					syndata.append(sample)
-					count2 += len(sample)
+					insert_count = struc_array_insert(syndata, sample, fit.labels, count_total)
 
-				syndata = np.vstack(syndata)[:batch]
+					if fit.insert_cmd is not None:
+						for column_name, value in fit.insert_cmd:
+							# value_arr = np.ones((insert_count, 1)) * value
+							# struc_array_insert(syndata, value_arr, [column_name], count_total)
+							syndata[column_name][count_total:count_total+insert_count] = value
 
-				if fit.insert_cmd is not None:
-					for cmd in fit.insert_cmd[::-1]:
-						syndata = np.insert(syndata, *cmd, axis=1)
+					count += insert_count
+					count_total += insert_count
 
-				data_out.append(syndata)
-				count += len(syndata)
-				if count > n:
+					if count_total >= n:
+						break
+
+				if count_total > n:
 					break
 
-		data_out = np.vstack(data_out)[:n]
+		assert count_total == n
 
-		for instruction, i, hint in self.other_dists[::-1]:
-			x = self.sample_dist(instruction, hint, data_out.shape[0])
-			data_out = np.insert(data_out, i, x, axis=1)
+		for instruction, column_name, hint in self.other_dists[::-1]:
+			syndata[column_name] = self.sample_dist(instruction, hint, n)
 
-		# data_out = misc.recarray(data_out)
+		return syndata
 
-		return data_out
 
 class SynException(Exception):
 	pass

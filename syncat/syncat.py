@@ -134,10 +134,10 @@ class SynCat(object):
 
         self.logger.info("loading %s", filename)
 
-        with CatalogueStore(filename) as cat:
+        with CatalogueStore(filename) as store:
 
             properties = []
-            for name in cat.columns:
+            for name in store.columns:
                 hit = False
                 for skip in self.config['skip']:
                     if skip.lower() in name.lower():
@@ -156,12 +156,8 @@ class SynCat(object):
 
             self.syn = Syn(labels=properties, hints=hints, config=self.config)
 
-            for zone in cat:
-                batch = []
-                for prop in properties:
-                    batch.append(np.array(getattr(zone, prop)))
-
-                batch = np.transpose(batch)
+            for zone in store.get_zones():
+                batch = store.to_structured_array(columns=properties, zones=[zone])
 
                 if self.config['quick']:
                     batch = batch[:10000]
