@@ -1,7 +1,6 @@
-""" Visibility mask
+""" synrcat
 
-Pipeline to build the visibility mask in the form of a weighted random
-catalogue.
+Synthesize a random catalogue.
 
 """
 import sys
@@ -23,6 +22,9 @@ class SynCat(object):
 	""" SynCat """
 	logger = logging.getLogger(__name__)
 
+	SHUFFLE_MODE = 'shuffle'
+	GMM_MODE = 'gmm'
+
 	# default parameters will be copied in if missing
 	_default_params = Defaults(
 
@@ -33,6 +35,9 @@ class SynCat(object):
 		Param("cat_model", metavar='filename', default='out/syn.pickle', type=str, help='file with catalogue model to load'),
 
 		Param('mask_file', default=None, type=str, help='load pypelid mask file to specify survey geometry'),
+
+		Param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE),
+						help='method to generate catalogue (gmm or shuffle)'),
 
 		Param('fit', default=False, action="store_true",
 						help="fit a catalogue model and save to file."),
@@ -50,7 +55,7 @@ class SynCat(object):
 
 		Param('sample_sky', default=True, action='store_true', help='sample sky coordinates'),
 
-		Param('skycoord_name', default='skycoord', help='column name to use for sky coordinates'),
+		Param('skycoord_name', default='skycoord', help='column name of sky coordinates'),
 
 		Param('verbose', alias='v', default=0, type=int, help='verbosity level'),
 
@@ -113,7 +118,6 @@ class SynCat(object):
 		if config['density'] is not None and config['sample_sky'] is None:
 			raise Exception("sample_sky must be True in density mode")
 
-
 	def load_hints(self):
 		""" """
 		self.hints = {}
@@ -121,8 +125,10 @@ class SynCat(object):
 		if os.path.exists(self.config['hints_file']):
 			for line in file(self.config['hints_file']):
 				line = line.strip()
-				if line == "": continue
-				if line.startswith("#"): continue
+				if line == "":
+					continue
+				if line.startswith("#"):
+					continue
 
 				words = line.split()
 
@@ -156,6 +162,9 @@ class SynCat(object):
 
 	def fit_catalogue(self, filename=None):
 		""" Initialize the galaxy model. """
+
+		if self.config['method'] == self.SHUFFLE_MODE:
+			return
 
 		if filename is None:
 			filename = self.config['in_cat']
@@ -234,6 +243,16 @@ class SynCat(object):
 		-------
 		dictionary : catalog
 		"""
+		if self.config['method'] == self.SHUFFLE_MODE:
+			self.shuffle_catalogue()
+			return
+		elif self.config['method'] == self.GMM_MODE:
+			if self.syn is None:
+				if not os.path.exists(self.config['cat_model']):
+					self.logger.error("Cannot load catalogue model.  Files does not exist: %s", self.config['cat_model'])
+					sys.exit(1)
+				self.syn = Syn(self.config['cat_model'])
+
 		if self.config['sample_sky']:
 			skycoord = self.sample_sky()
 			count = len(skycoord)
@@ -301,11 +320,6 @@ class SynCat(object):
 			self.fit_catalogue()
 
 		if self.config['syn']:
-			if self.syn is None:
-				if not os.path.exists(self.config['cat_model']):
-					self.logger.error("Cannot load catalogue model.  Files does not exist: %s", self.config['cat_model'])
-					sys.exit(1)
-				self.syn = Syn(self.config['cat_model'])
 			self.build_catalogue()
 
 
