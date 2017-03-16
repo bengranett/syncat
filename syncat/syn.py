@@ -6,6 +6,7 @@ import time
 import cPickle as pickle
 from sklearn import mixture, decomposition
 
+from pypelid import pypelidobj, add_param
 from pypelid.utils.config import Defaults, Param
 from pypelid.utils.misc import increment_path, flatten_struc_array
 import pypelid.utils.misc as misc
@@ -50,38 +51,23 @@ class FitResults(object):
 		""" """
 		self.__dict__.update(kwargs)
 
-
-class Syn:
+@add_param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix")
+@add_param('batch_size', metavar='n', default=10000, type=int, help="Fit in batches of this size", hidden=True)
+@add_param('nloops', metavar='n', default=1, type=int, help="Number of times to repeat fit and take the best one")
+@add_param('apply_pca', default=False, action='store_true', help="Preprocess with PCA", hidden=True)
+@add_param('covariance_mode', metavar='mode', default='diag', choices=['diag', 'full', 'tied', 'spherical'],
+	help="Mode for modelling the Gaussian components.", hidden=True)
+@add_param('min_fit_size',metavar='n',  default=50, type=int, help="Minimimum size of dataset to do Gaussian fit", hidden=True)
+@add_param('discreteness_count', metavar='n', default=20, type=int, help="If count of unique values is less than this, array is discrete", hidden=True)
+@add_param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='?', help='values that will be treated as discrete.')
+@add_param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True)
+@add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
+class Syn(pypelidobj):
 	""" """
-	logger = logging.getLogger(__name__)
-
-	_default_params = Defaults(
-		Param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix"),
-		Param('batch_size', metavar='n', default=10000, type=int, help="Fit in batches of this size", hidden=True),
-		Param('nloops', metavar='n', default=1, type=int, help="Number of times to repeat fit and take the best one"),
-		Param('apply_pca', default=False, action='store_true', help="Preprocess with PCA", hidden=True),
-		Param('covariance_mode', metavar='mode', default='diag', choices=['diag', 'full', 'tied', 'spherical'],
-			help="Mode for modelling the Gaussian components.", hidden=True),
-		Param('min_fit_size',metavar='n',  default=50, type=int, help="Minimimum size of dataset to do Gaussian fit", hidden=True),
-		Param('discreteness_count', metavar='n', default=20, type=int, help="If count of unique values is less than this, array is discrete", hidden=True),
-		Param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='?', help='values that will be treated as discrete.'),
-		Param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True),
-	)
-
 	def __init__(self, loadfile=None, labels=None, hints={}, config={}, **kwargs):
 		""" Build synthetic datasets. """
-		self.config = config
-
-		# merge key,value arguments and config dict
-		for key, value in kwargs.items():
-			self.config[key] = value
-
-		# Add any parameters that are missing
-		for key, def_value in self._default_params.items():
-			try:
-				self.config[key]
-			except KeyError:
-				self.config[key] = def_value
+		self._parse_config(config, **kwargs)
+		self._setup_logging()
 
 		self.labels = labels
 		self.loadfile = loadfile
@@ -96,7 +82,7 @@ class Syn:
 		""" Load a catalogue model file from a previous run. """
 		if path is not None and os.path.exists(path):
 			self.labels, self.fit_results, self.other_dists, self.hints, self.dtype = pickle.load(file(path))
-			self.logger.info("Lodaed %s, got %i fit results.", path, len(self.fit_results))
+			self.logger.info("Loaded %s, got %i fit results.", path, len(self.fit_results))
 
 	def save(self, path=None):
 		""" Save the catalogue model file. """

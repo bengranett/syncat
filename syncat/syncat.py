@@ -8,115 +8,46 @@ import os
 import logging
 import numpy as np
 
+from pypelid import pypelidobj, add_param, depends_on
 from pypelid.utils import misc
 from pypelid.vm.syn import Syn
 from pypelid.sky.catalogue_store import CatalogueStore
 from pypelid.survey.mask import Mask
-from pypelid.utils.config import Config, Defaults, Param
+from pypelid.utils.config import Config
 from pypelid.utils import sphere
 
 import time
 
+SHUFFLE_MODE = 'shuffle'
+GMM_MODE = 'gmm'
+ZDIST_MODE = 'radial'
+skycoord_type = np.dtype((np.float64, 2))
 
-class SynCat(object):
-	""" SynCat """
-	logger = logging.getLogger(__name__)
+@add_param('cat_model', metavar='filename', default='out/syn.pickle', type=str,
+						help='file with catalogue model to load')
+@add_param('fit', default=False, action="store_true",
+						help="fit a catalogue model and save to file.")
+@add_param('hints_file', metavar='filename', default='in/syn_hints.txt', type=str,
+						help='give hints about parameter distributions')
+@depends_on(Syn)
+class GaussianMixtureModel(pypelidobj):
+	""" """
 
-	SHUFFLE_MODE = 'shuffle'
-	GMM_MODE = 'gmm'
-
-	# default parameters will be copied in if missing
-	_default_params = Defaults(
-
-		Param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog'),
-
-		Param("out_cat", metavar='filename', default='out/syn.pypelid.hdf5', type=str, help='catalog file to write'),
-
-		Param("cat_model", metavar='filename', default='out/syn.pickle', type=str, help='file with catalogue model to load'),
-
-		Param('mask_file', default=None, type=str, help='load pypelid mask file to specify survey geometry'),
-
-		Param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE),
-						help='method to generate catalogue (gmm or shuffle)'),
-
-		Param('fit', default=False, action="store_true",
-						help="fit a catalogue model and save to file."),
-
-		Param('syn', default=False, action="store_true",
-						help="sample from the model and save output catalogue."),
-
-		Param('density', metavar='x', default=None, type=float, help="number density of objects to synthesize (n/sqr deg)"),
-
-		Param('count', alias='n', metavar='n', default=None, type=float, help="number of objects to synthesize"),
-
-		Param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored'),
-
-		Param('add_columns', metavar='name', default=[], nargs='?', help='add these columns with zeros if they are present in input catalogue'),
-
-		Param('sample_sky', default=True, action='store_true', help='sample sky coordinates'),
-
-		Param('skycoord_name', default='skycoord', help='column name of sky coordinates'),
-
-		Param('verbose', alias='v', default=0, type=int, help='verbosity level'),
-
-		Param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run'),
-
-		Param('hints_file', default='in/syn_hints.txt', type=str, help='provide hints about parameter distributions'),
-
-		Param('overwrite', default=False, action='store_true', help='overwrite model fit')
-	)
-
-	_dependencies = [Syn]
-
-	skycoord_type = np.dtype((np.float64, 2))
-
-	def __init__(self, config={}, **args):
+	def __init__(self, config={}, mask=None, **kwargs):
 		""" """
-		self.config = config
+		self._parse_config(config, **kwargs)
+		self._setup_logging()
 
-		# merge key,value arguments and config dict
-		for key, value in args.items():
-			self.config[key] = value
+		self.load_hints()
 
-		# Add any parameters that are missing
-		for key, def_value in self._default_params.items():
-			try:
-				self.config[key]
-			except KeyError:
-				self.config[key] = def_value
-
-		if self.config['verbose'] == 0:
-			level = logging.CRITICAL
-		elif self.config['verbose'] == 1:
-			level = logging.INFO
-		else:
-			level = logging.DEBUG
-
-		logging.basicConfig(level=level)
+		self.mask = mask
 
 		self.syn = None
 
-		self.mask = Mask()
-		if os.path.exists(self.config['mask_file']):
-			self.logger.info("loading mask file %s", self.config['mask_file'])
-			self.mask.load(self.config['mask_file'])
-		else:
-			self.logger.info("no mask file.  full sky")
-
-	@staticmethod
-	def check_config(config):
+	def sample_sky(self, zone=None, nside=None, order=None):
 		""" """
-		if config['density'] is None and config['count'] is None:
-			raise Exception("must specify either density or count")
-
-		if config['density'] is not None and config['count'] is not None:
-			raise Exception("must specify either density or count (not both)")
-
-		if config['density'] is not None and config['mask_file'] is None:
-			raise Exception("a mask file is needed for density mode")
-
-		if config['density'] is not None and config['sample_sky'] is None:
-			raise Exception("sample_sky must be True in density mode")
+		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+															cell=zone, nside=nside))
 
 	def load_hints(self):
 		""" """
@@ -155,17 +86,14 @@ class SynCat(object):
 
 		return self.hints
 
-	def sample_sky(self, zone=None, nside=None, order=None):
-		""" """
-		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
-															cell=zone, nside=nside))
+	def fit(self, filename=None):
+		""" Fit a Gaussian mixture model to the input catalogue.
 
-	def fit_catalogue(self, filename=None):
-		""" Initialize the galaxy model. """
-
-		if self.config['method'] == self.SHUFFLE_MODE:
-			return
-
+		Parameters
+		----------
+		filename : str
+			path to input catalogue.
+		"""
 		if filename is None:
 			filename = self.config['in_cat']
 
@@ -204,7 +132,7 @@ class SynCat(object):
 			self.syn = Syn(labels=properties, hints=hints, config=self.config)
 
 			if self.config['sample_sky']:
-				skycoord_dtype = np.dtype([(self.config['skycoord_name'], self.skycoord_type)])
+				skycoord_dtype = np.dtype([(self.config['skycoord_name'], skycoord_type)])
 
 			for zone in store.get_zones():
 				batch = store.to_structured_array(columns=properties, zones=[zone])
@@ -233,25 +161,12 @@ class SynCat(object):
 		# save catalogue model
 		self.syn.save(self.config['cat_model'])
 
-	def build_catalogue(self):
-		""" Build random catalogue.
-
-		Parameters
-		----------
-
-		Returns
-		-------
-		dictionary : catalog
-		"""
-		if self.config['method'] == self.SHUFFLE_MODE:
-			self.shuffle_catalogue()
-			return
-		elif self.config['method'] == self.GMM_MODE:
-			if self.syn is None:
-				if not os.path.exists(self.config['cat_model']):
-					self.logger.error("Cannot load catalogue model.  Files does not exist: %s", self.config['cat_model'])
-					sys.exit(1)
-				self.syn = Syn(self.config['cat_model'])
+	def sample(self):
+		""" """
+		if self.syn is None:
+			if not os.path.exists(self.config['cat_model']):
+				raise Exception("Cannot load catalogue model.  Files does not exist: %s"%self.config['cat_model'])
+			self.syn = Syn(self.config['cat_model'])
 
 		if self.config['sample_sky']:
 			skycoord = self.sample_sky()
@@ -259,20 +174,112 @@ class SynCat(object):
 		else:
 			count = self.config['count']
 
+		randoms = self.syn.sample(n=count)
+		if self.config['sample_sky']:
+			randoms[self.config['skycoord_name']] = skycoord
+
 		with CatalogueStore(self.config['out_cat'], 'a', preallocate_file=False) as cat:
 
-			randoms = self.syn.sample(n=count)
+			cat.load(randoms)
 
-			if self.config['sample_sky']:
-				randoms[self.config['skycoord_name']] = skycoord
+			cat.load_attributes(name='SynCat', method=self.config['method'])
 
-			cat.load(data)
-
-			cat.load_attributes(name='SynCat')
+			self.logger.debug("count: %i", cat.count)
 
 		self.logger.info("output saved to cat %s", self.config['out_cat'])
 
-	def shuffle_catalogue(self, filename=None):
+		return randoms
+
+@add_param('zdist_file', metavar='filename', default='in/zdist.txt', type=str, help='path to file specifying redshift distribution')
+class Radial(pypelidobj):
+	""" """
+
+	def __init__(self, config={}, mask=None, **kwargs):
+		""" """
+		self._parse_config(config, **kwargs)
+		self._setup_logging()
+
+		self.zdist = None
+		self.load_zdist()
+
+		self.mask = mask
+
+	def load_zdist(self, filename=None):
+		""" Load a redshift distribution from a file.
+
+		The file format can be ascii with columns redshift and n(z)
+		or a tuple (z, nz) stored in a numpy .npy or pickle file.
+
+		Parameters
+		----------
+		filename : str
+			Path to redshift distribution file.
+		"""
+		if filename is None:
+			filename = self.config['zdist_file']
+
+		if not os.path.exists(filename):
+			self.logger.warning("redshift distribution file %s does not exist", filename)
+			return
+
+		try:
+			zz, nz = np.load(filename)
+			done = True
+		except:
+			pass
+
+		try:
+			zz, nz = np.loadtxt(filename, unpack=True)
+			done = True
+		except:
+			pass
+
+		if not done:
+			self.logger.warning("Could not load file %s.  Unknown format.", filename)
+			return
+
+		# normalize redshift distribution
+		nz = nz * 1. / np.sum(nz)
+
+		self.zdist = (zz, nz)
+		self.logger.info("Loaded redshift distribution file %s.", filename)
+
+	def sample_sky(self, zone=None, nside=None, order=None):
+		""" """
+		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+															cell=zone, nside=nside))
+
+	def fit(self):
+		""" """
+		pass
+
+	def sample(self):
+		""" Draw redshift from the distribution. """
+		if self.zdist is None:
+			self.load_zdist()
+
+		zz, nz = self.zdist
+
+
+class Shuffle(pypelidobj):
+	""" """
+
+	def __init__(self, config={}, mask=None, **kwargs):
+		""" """
+		self._parse_config(config, **kwargs)
+		self._setup_logging()
+		self.mask = mask
+
+	def sample_sky(self, zone=None, nside=None, order=None):
+		""" """
+		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+															cell=zone, nside=nside))
+
+	def fit(self):
+		""" """
+		pass
+
+	def sample(self, filename=None):
 		""" shuffle catalogue. """
 
 		if filename is None:
@@ -307,8 +314,70 @@ class SynCat(object):
 
 		self.logger.info("Wrote shuffled catalogue nobj=%i: %s", count, self.config['out_cat'])
 
+
+@add_param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog')
+@add_param("out_cat", metavar='filename', default='out/syn.pypelid.hdf5', type=str, help='catalog file to write')
+@add_param('mask_file', metavar='filename', default=None, type=str, help='load pypelid mask file to specify survey geometry')
+@add_param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE, ZDIST_MODE),
+				help='method to generate catalogue (gmm, shuffle, radial)')
+@add_param('sample', default=False, action="store_true",
+				help="generate samples and save output catalogue.")
+@add_param('density', metavar='x', default=None, type=float, help="number density of objects to synthesize (n/sqr deg)")
+@add_param('count', alias='n', metavar='n', default=None, type=float, help="number of objects to synthesize")
+@add_param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored')
+@add_param('add_columns', metavar='name', default=[], nargs='?', help='add these columns with zeros if they are present in input catalogue')
+@add_param('sample_sky', default=True, action='store_true', help='sample sky coordinates')
+@add_param('skycoord_name', metavar='name', default='skycoord', help='column name of sky coordinates')
+@add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
+@add_param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run')
+@add_param('overwrite', default=False, action='store_true', help='overwrite model fit')
+@depends_on(GaussianMixtureModel, Shuffle, Radial)
+class SynCat(pypelidobj):
+	""" SynCat """
+
+	modes = {
+		GMM_MODE: GaussianMixtureModel,
+		SHUFFLE_MODE: Shuffle,
+		ZDIST_MODE: Radial,
+	}
+
+	def __init__(self, config={}, **kwargs):
+		""" """
+		self._parse_config(config, **kwargs)
+		self._setup_logging()
+		self.logger.info("Starting SynCat")
+
+		self.load_mask()
+
+		self.synthesizer = self.modes[config['method']](self.config, self.mask)
+
+	@staticmethod
+	def check_config(config):
+		""" """
+		if config['density'] is None and config['count'] is None:
+			raise Exception("must specify either density or count")
+
+		if config['density'] is not None and config['count'] is not None:
+			raise Exception("must specify either density or count (not both)")
+
+		if config['density'] is not None and config['mask_file'] is None:
+			raise Exception("a mask file is needed for density mode")
+
+		if config['density'] is not None and config['sample_sky'] is None:
+			raise Exception("sample_sky must be True in density mode")
+
+	def load_mask(self):
+		""" """
+		self.mask = Mask()
+
+		if self.config['mask_file'] and os.path.exists(self.config['mask_file']):
+			self.logger.info("loading mask file %s", self.config['mask_file'])
+			self.mask.load(self.config['mask_file'])
+		else:
+			self.logger.info("no mask file.  full sky")
+
 	def run(self):
-		""" Run visibilty mask pipeline.
+		""" Run SynCat pipeline.
 
 		Parameters
 		----------
@@ -317,10 +386,12 @@ class SynCat(object):
 		-------
 		"""
 		if self.config['fit']:
-			self.fit_catalogue()
+			self.logger.info("Starting fit")
+			self.synthesizer.fit()
 
-		if self.config['syn']:
-			self.build_catalogue()
+		if self.config['sample']:
+			self.logger.info("Starting sampling")
+			self.synthesizer.sample()
 
 
 def main(args=None):
