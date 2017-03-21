@@ -11,6 +11,7 @@ import numpy as np
 from pypelid import pypelidobj, add_param, depends_on
 from pypelid.utils import misc
 from pypelid.vm.syn import Syn
+from pypelid.vm.sample_dist import sample_dist
 from pypelid.sky.catalogue_store import CatalogueStore
 from pypelid.survey.mask import Mask
 from pypelid.utils.config import Config
@@ -23,15 +24,14 @@ GMM_MODE = 'gmm'
 ZDIST_MODE = 'radial'
 skycoord_type = np.dtype((np.float64, 2))
 
+
 @add_param('cat_model', metavar='filename', default='out/syn.pickle', type=str,
 						help='file with catalogue model to load')
-@add_param('fit', default=False, action="store_true",
-						help="fit a catalogue model and save to file.")
 @add_param('hints_file', metavar='filename', default='in/syn_hints.txt', type=str,
 						help='give hints about parameter distributions')
 @depends_on(Syn)
 class GaussianMixtureModel(pypelidobj):
-	""" """
+	""" SynCat mode to generate random catalogue by sampling from a gaussian mixture model."""
 
 	def __init__(self, config={}, mask=None, **kwargs):
 		""" """
@@ -190,17 +190,22 @@ class GaussianMixtureModel(pypelidobj):
 
 		return randoms
 
-@add_param('zdist_file', metavar='filename', default='in/zdist.txt', type=str, help='path to file specifying redshift distribution')
-class Radial(pypelidobj):
-	""" """
 
-	def __init__(self, config={}, mask=None, **kwargs):
+@add_param('zdist_file', metavar='filename', default='in/zdist.txt', type=str,
+	help='path to file specifying redshift distribution')
+@add_param('zdist_interp', metavar='name', default='pchip', choices=('linear','pchip'), type=str,
+	help='method to interpolate cumulative distribution function')
+class Radial(pypelidobj):
+	""" SynCat mode to generate a random catalogue by drawing redshift from a distribution."""
+
+	def __init__(self, config={}, mask=None, zdist=None, **kwargs):
 		""" """
 		self._parse_config(config, **kwargs)
 		self._setup_logging()
 
-		self.zdist = None
-		self.load_zdist()
+		self.zdist = zdist
+		if zdist is None:
+			self.load_zdist()
 
 		self.mask = mask
 
@@ -241,7 +246,10 @@ class Radial(pypelidobj):
 		# normalize redshift distribution
 		nz = nz * 1. / np.sum(nz)
 
-		self.zdist = (zz, nz)
+		step = zz[1] - zz[0]
+		bin_edges = np.arange(len(zz) + 1) * step + zz[0] - step / 2.
+
+		self.zdist = (bin_edges, nz)
 		self.logger.info("Loaded redshift distribution file %s.", filename)
 
 	def sample_sky(self, zone=None, nside=None, order=None):
@@ -254,15 +262,37 @@ class Radial(pypelidobj):
 		pass
 
 	def sample(self):
-		""" Draw redshift from the distribution. """
-		if self.zdist is None:
-			self.load_zdist()
+		""" Draw samples from the radial selection function."""
+		if self.config['overwrite']:
+			if os.path.exists(self.config['out_cat']):
+				self.logger.info("overwriting existing catalogue: %s", self.config['out_cat'])
+				os.unlink(self.config['out_cat'])
 
-		zz, nz = self.zdist
+		bin_edges, bin_counts = self.zdist
 
+		sampler = sample_dist(bin_edges, bin_counts)
+
+		with CatalogueStore(self.config['out_cat'], 'w', preallocate_file=False) as output:
+
+			for zone in np.arange(output._hp_projector.npix):
+				# loop through zones in output
+				skycoord = self.sample_sky(zone=zone, nside=output._hp_projector.nside)
+
+				if len(skycoord) == 0:
+					continue
+
+				redshift = sampler(len(skycoord))
+
+				data = {'z': redshift, self.config['skycoord_name']: skycoord}
+
+				output.load(data)
+
+			count = output.count
+
+		self.logger.info("Wrote radial random catalogue nobj=%i: %s", count, self.config['out_cat'])
 
 class Shuffle(pypelidobj):
-	""" """
+	""" SynCat mode to generate a random catalogue by shuffling."""
 
 	def __init__(self, config={}, mask=None, **kwargs):
 		""" """
@@ -322,6 +352,8 @@ class Shuffle(pypelidobj):
 				help='method to generate catalogue (gmm, shuffle, radial)')
 @add_param('sample', default=False, action="store_true",
 				help="generate samples and save output catalogue.")
+@add_param('fit', default=False, action="store_true",
+						help="fit a catalogue model and save to file.")
 @add_param('density', metavar='x', default=None, type=float, help="number density of objects to synthesize (n/sqr deg)")
 @add_param('count', alias='n', metavar='n', default=None, type=float, help="number of objects to synthesize")
 @add_param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored')
@@ -347,9 +379,9 @@ class SynCat(pypelidobj):
 		self._setup_logging()
 		self.logger.info("Starting SynCat")
 
-		self.load_mask()
+		mask = self.load_mask()
 
-		self.synthesizer = self.modes[config['method']](self.config, self.mask)
+		self.synthesizer = self.modes[config['method']](self.config, mask)
 
 	@staticmethod
 	def check_config(config):
@@ -376,7 +408,9 @@ class SynCat(pypelidobj):
 		else:
 			self.logger.info("no mask file.  full sky")
 
-	def run(self):
+		return self.mask
+
+	def run(self, sample=True):
 		""" Run SynCat pipeline.
 
 		Parameters
@@ -385,13 +419,20 @@ class SynCat(pypelidobj):
 		Returns
 		-------
 		"""
+		done = False
+
 		if self.config['fit']:
 			self.logger.info("Starting fit")
 			self.synthesizer.fit()
+			done = True
 
-		if self.config['sample']:
+		if self.config['sample'] or sample:
 			self.logger.info("Starting sampling")
 			self.synthesizer.sample()
+			done = True
+
+		if not done:
+			self.logger.info("run() has nothing to do and so did nothing")
 
 
 def main(args=None):
@@ -421,7 +462,7 @@ def main(args=None):
 	# Run code
 	try:
 		S = SynCat(config)
-		S.run()
+		S.run(False)
 	except Exception as e:
 		raise
 		print >>sys.stderr, traceback.format_exc()
