@@ -6,8 +6,8 @@ import time
 import cPickle as pickle
 from sklearn import mixture, decomposition
 
-from pypelid import pypelidobj, add_param
-from pypelid.utils.config import Defaults, Param
+from pypeline import pype, add_param
+
 from pypelid.utils.misc import increment_path, flatten_struc_array
 import pypelid.utils.misc as misc
 
@@ -62,7 +62,7 @@ class FitResults(object):
 @add_param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='?', help='values that will be treated as discrete.')
 @add_param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True)
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
-class Syn(pypelidobj):
+class Syn(pype):
 	""" """
 	def __init__(self, loadfile=None, labels=None, hints={}, config={}, **kwargs):
 		""" Build synthetic datasets. """

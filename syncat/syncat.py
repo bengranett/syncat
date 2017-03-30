@@ -8,14 +8,14 @@ import os
 import logging
 import numpy as np
 
-from pypelid import pypelidobj, add_param, depends_on
-from pypelid.utils import misc
-from pypelid.vm.syn import Syn
-from pypelid.vm.sample_dist import sample_dist
-from pypelid.sky.catalogue_store import CatalogueStore
-from pypelid.survey.mask import Mask
-from pypelid.utils.config import Config
-from pypelid.utils import sphere
+from pypeline import pype, Config, add_param, depends_on
+
+from methodius import misc
+from syn import Syn
+from sample_dist import sample_dist
+from catstore.catalogue_store import CatalogueStore
+from minimask.mask import Mask
+from minimask.mask import sphere
 
 import time
 
@@ -30,7 +30,7 @@ skycoord_type = np.dtype((np.float64, 2))
 @add_param('hints_file', metavar='filename', default='in/syn_hints.txt', type=str,
 						help='give hints about parameter distributions')
 @depends_on(Syn)
-class GaussianMixtureModel(pypelidobj):
+class GaussianMixtureModel(pype):
 	""" SynCat mode to generate random catalogue by sampling from a gaussian mixture model."""
 
 	def __init__(self, config={}, mask=None, **kwargs):
@@ -195,7 +195,7 @@ class GaussianMixtureModel(pypelidobj):
 	help='path to file specifying redshift distribution')
 @add_param('zdist_interp', metavar='name', default='pchip', choices=('linear','pchip'), type=str,
 	help='method to interpolate cumulative distribution function')
-class Radial(pypelidobj):
+class Radial(pype):
 	""" SynCat mode to generate a random catalogue by drawing redshift from a distribution."""
 
 	def __init__(self, config={}, mask=None, zdist=None, **kwargs):
@@ -291,7 +291,7 @@ class Radial(pypelidobj):
 
 		self.logger.info("Wrote radial random catalogue nobj=%i: %s", count, self.config['out_cat'])
 
-class Shuffle(pypelidobj):
+class Shuffle(pype):
 	""" SynCat mode to generate a random catalogue by shuffling."""
 
 	def __init__(self, config={}, mask=None, **kwargs):
@@ -364,7 +364,7 @@ class Shuffle(pypelidobj):
 @add_param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run')
 @add_param('overwrite', default=False, action='store_true', help='overwrite model fit')
 @depends_on(GaussianMixtureModel, Shuffle, Radial)
-class SynCat(pypelidobj):
+class SynCat(pype):
 	""" SynCat """
 
 	modes = {
