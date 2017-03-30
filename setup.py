@@ -73,7 +73,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['numpy', 'scipy', 'scikit-learn', 'catstore'],
+    install_requires=['numpy', 'scipy', 'scikit-learn', 'catstore', 'pypeline'],
 
     # # List additional groups of dependencies here (e.g. development
     # # dependencies). You can install these using the following syntax,
@@ -97,12 +97,12 @@ setup(
     # # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
     # data_files=[('my_data', ['data/data_file'])],
 
-    # # To provide executable scripts, use entry points in preference to the
-    # # "scripts" keyword. Entry points provide cross-platform support and allow
-    # # pip to create the appropriate form of executable for the target platform.
-    # entry_points={
-    #     'console_scripts': [
-    #         'sample=sample:main',
-    #     ],
-    # },
+    # To provide executable scripts, use entry points in preference to the
+    # "scripts" keyword. Entry points provide cross-platform support and allow
+    # pip to create the appropriate form of executable for the target platform.
+    entry_points={
+        'console_scripts': [
+            'syncat=syncat.syncat:main',
+        ],
+    },
 )
