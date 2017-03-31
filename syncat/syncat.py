@@ -7,13 +7,15 @@ import sys
 import os
 import logging
 import numpy as np
+from collections import OrderedDict
+
+from astropy.table import Table
 
 from pypeline import pype, Config, add_param, depends_on
 
-from methodius import misc
+import pypelid.utils.misc as misc
 from syn import Syn
 from sample_dist import sample_dist
-from catstore.catalogue_store import CatalogueStore
 from minimask.mask import Mask
 from minimask.mask import sphere
 
@@ -22,7 +24,6 @@ import time
 SHUFFLE_MODE = 'shuffle'
 GMM_MODE = 'gmm'
 ZDIST_MODE = 'radial'
-skycoord_type = np.dtype((np.float64, 2))
 
 
 @add_param('cat_model', metavar='filename', default='out/syn.pickle', type=str,
@@ -107,53 +108,57 @@ class GaussianMixtureModel(pype):
 
 		self.logger.info("loading %s", filename)
 
-		with CatalogueStore(filename) as store:
+		table = Table.read(filename, format=self.config['input_format'])
 
-			other_dtypes = {}
-			properties = []
-			for name in store.columns:
-				hit = False
-				for skip in self.config['skip']:
-					if skip.lower() in name.lower():
-						hit = True
-						self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
-						other_dtypes[name] = np.dtype([(name.encode('ascii'), store.dtype[name])])
-						break
+		other_dtypes = {}
+		properties = []
 
-				if not hit:
-					properties.append(name)
-
-			if self.logger.isEnabledFor(logging.INFO):
-				mesg = ""
-				for i, p in enumerate(properties):
-					mesg += "\n{:>3} {}".format(1 + i, p)
-				self.logger.info("got these %i columns:%s", len(properties), mesg)
-
-			self.syn = Syn(labels=properties, hints=hints, config=self.config)
-
-			if self.config['sample_sky']:
-				skycoord_dtype = np.dtype([(self.config['skycoord_name'], skycoord_type)])
-
-			for zone in store.get_zones():
-				batch = store.to_structured_array(columns=properties, zones=[zone])
-
-				dtype = batch.dtype
-				for name in self.config['add_columns']:
-					try:
-						dtype = misc.concatenate_dtypes([dtype, other_dtypes[name]])
-					except KeyError:
-						pass
-
-				if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
-					dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
-
-				if self.config['quick']:
-					batch = batch[:10000]
-
-				self.syn.fit(batch, dtype=dtype)
-
-				if self.config['quick']:
+		for name in table.columns:
+			hit = False
+			for skip in self.config['skip']:
+				if skip.lower() in name.lower():
+					hit = True
+					self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
+					other_dtypes[name] = np.dtype([(name.encode('ascii'), table.dtype[name])])
 					break
+
+			if not hit:
+				properties.append(name)
+
+		table = table[properties]
+
+		if self.logger.isEnabledFor(logging.INFO):
+			mesg = ""
+			for i, p in enumerate(properties):
+				mesg += "\n{:>3} {}".format(1 + i, p)
+			self.logger.info("got these %i columns:%s", len(properties), mesg)
+
+		self.syn = Syn(labels=properties, hints=hints, config=self.config)
+
+		dtype = table.dtype
+		for name in self.config['add_columns']:
+			try:
+				dtype = misc.concatenate_dtypes([dtype, other_dtypes[name]])
+			except KeyError:
+				pass
+
+		if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
+			dim = len(misc.ensurelist(self.config['skycoord_name']))
+
+			if dim == 1:
+				skycoord_dtype = np.dtype([(self.config['skycoord_name'], np.dtype((np.float64, 2)))])
+			elif dim == 2:
+				alpha, delta = self.config['skycoord_name']
+				skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
+
+			dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
+
+		print dtype
+
+		if self.config['quick']:
+			table = table[:10000]
+
+		self.syn.fit(table, dtype=dtype)
 
 		# store column names
 		self.labels = properties
@@ -176,17 +181,13 @@ class GaussianMixtureModel(pype):
 
 		randoms = self.syn.sample(n=count)
 		if self.config['sample_sky']:
-			randoms[self.config['skycoord_name']] = skycoord
+			dim = len(misc.ensurelist(self.config['skycoord_name']))
 
-		with CatalogueStore(self.config['out_cat'], 'a', preallocate_file=False) as cat:
-
-			cat.load(randoms)
-
-			cat.load_attributes(name='SynCat', method=self.config['method'])
-
-			self.logger.debug("count: %i", cat.count)
-
-		self.logger.info("output saved to cat %s", self.config['out_cat'])
+			if dim == 1:
+				randoms[self.config['skycoord_name']] = skycoord
+			else:
+				for i in range(dim):
+					randoms[self.config['skycoord_name'][i]] = skycoord[:,i]
 
 		return randoms
 
@@ -254,7 +255,7 @@ class Radial(pype):
 
 	def sample_sky(self, zone=None, nside=None, order=None):
 		""" """
-		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+		return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=int(self.config['count']),
 															cell=zone, nside=nside))
 
 	def fit(self):
@@ -272,27 +273,30 @@ class Radial(pype):
 
 		sampler = sample_dist(bin_edges, bin_counts)
 
-		with CatalogueStore(self.config['out_cat'], 'w', preallocate_file=False) as output:
+		skycoord = self.sample_sky()
 
-			for zone in np.arange(output._hp_projector.npix):
-				# loop through zones in output
-				skycoord = self.sample_sky(zone=zone, nside=output._hp_projector.nside)
+		redshift = sampler(len(skycoord))
 
-				if len(skycoord) == 0:
-					continue
+		data_out = OrderedDict({'z': redshift})
 
-				redshift = sampler(len(skycoord))
+		dim = len(misc.ensurelist(self.config['skycoord_name']))
+		if dim == 1:
+			data_out[self.config['skycoord_name']] = skycoord
+		else:
+			for i in range(dim):
+				data_out[self.config['skycoord_name'][i]] = skycoord[:, i]
 
-				data = {'z': redshift, self.config['skycoord_name']: skycoord}
+		print data_out.keys()
+		data_out = misc.dict_to_structured_array(data_out)
 
-				output.load(data)
+		self.logger.info("Wrote radial random catalogue nobj=%i: %s", len(data_out), self.config['out_cat'])
 
-			count = output.count
+		return data_out
 
-		self.logger.info("Wrote radial random catalogue nobj=%i: %s", count, self.config['out_cat'])
 
 class Shuffle(pype):
 	""" SynCat mode to generate a random catalogue by shuffling."""
+	_default_params = {}
 
 	def __init__(self, config={}, mask=None, **kwargs):
 		""" """
@@ -323,30 +327,28 @@ class Shuffle(pype):
 				os.unlink(self.config['out_cat'])
 
 		# load full catalogue to shuffle
-		data = CatalogueStore(filename).to_structured_array()
+		data = Table.read(filename)
 
-		with CatalogueStore(self.config['out_cat'], 'w', preallocate_file=False) as output:
+		skycoord = self.sample_sky()
 
-			for zone in np.arange(output._hp_projector.npix):
-				# loop through zones in output
-				skycoord = self.sample_sky(zone=zone, nside=output._hp_projector.nside)
+		data_out = np.random.choice(data, size=len(skycoord), replace=True)
 
-				if len(skycoord) == 0:
-					continue
+		dim = len(misc.ensurelist(self.config['skycoord_name']))
+		if dim == 1:
+			data_out[self.config['skycoord_name']] = skycoord
+		else:
+			for i in range(dim):
+				data_out[self.config['skycoord_name'][i]] = skycoord[:, i]
 
-				data_out = np.random.choice(data, size=len(skycoord), replace=True)
+		self.logger.info("Wrote shuffled catalogue nobj=%i: %s", len(data_out), self.config['out_cat'])
 
-				data_out[self.config['skycoord_name']] = skycoord
-
-				output.load(data_out)
-
-			count = output.count
-
-		self.logger.info("Wrote shuffled catalogue nobj=%i: %s", count, self.config['out_cat'])
+		return data_out
 
 
 @add_param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog')
+@add_param("input_format", metavar='fmt', default=None, type=str, help='input catalog format')
 @add_param("out_cat", metavar='filename', default='out/syn.pypelid.hdf5', type=str, help='catalog file to write')
+@add_param("output_format", metavar='fmt', default=None, type=str, help='output catalog format')
 @add_param('mask_file', metavar='filename', default=None, type=str, help='load pypelid mask file to specify survey geometry')
 @add_param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE, ZDIST_MODE),
 				help='method to generate catalogue (gmm, shuffle, radial)')
@@ -356,10 +358,11 @@ class Shuffle(pype):
 						help="fit a catalogue model and save to file.")
 @add_param('density', metavar='x', default=None, type=float, help="number density of objects to synthesize (n/sqr deg)")
 @add_param('count', alias='n', metavar='n', default=None, type=float, help="number of objects to synthesize")
-@add_param('skip', metavar='name', default=['id', 'skycoord'], nargs='?', help='names of parameters that should be ignored')
+@add_param('skip', metavar='name', default=['id', 'num', 'skycoord', 'alpha', 'delta'], 
+				nargs='?', help='names of parameters that should be ignored')
 @add_param('add_columns', metavar='name', default=[], nargs='?', help='add these columns with zeros if they are present in input catalogue')
 @add_param('sample_sky', default=True, action='store_true', help='sample sky coordinates')
-@add_param('skycoord_name', metavar='name', default='skycoord', help='column name of sky coordinates')
+@add_param('skycoord_name', metavar='name', default=('alpha', 'delta'), nargs='?', help='column name(s) of sky coordinates')
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
 @add_param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run')
 @add_param('overwrite', default=False, action='store_true', help='overwrite model fit')
@@ -428,12 +431,19 @@ class SynCat(pype):
 
 		if self.config['sample'] or sample:
 			self.logger.info("Starting sampling")
-			self.synthesizer.sample()
+			data = self.synthesizer.sample()
+			self.write_cat(data)
+
 			done = True
 
 		if not done:
 			self.logger.info("run() has nothing to do and so did nothing")
 
+	def write_cat(self, data):
+		""" """
+		table = Table(data=data)
+		table.write(self.config['out_cat'], format=self.config['output_format'],
+			overwrite=self.config['overwrite'])
 
 def main(args=None):
 	""" Main routine so can have other entry points """
