@@ -55,12 +55,13 @@ class Shuffle(pype):
 
         data_out = np.random.choice(data, size=len(skycoord), replace=True)
 
-        dim = len(misc.ensurelist(self.config['skycoord_name']))
+        skycoord_name = misc.ensurelist(self.config['skycoord_name'])
+        dim = len(skycoord_name)
         if dim == 1:
-            data_out[self.config['skycoord_name']] = skycoord
+            data_out[skycoord_name[0]] = skycoord
         else:
             for i in range(dim):
-                data_out[self.config['skycoord_name'][i]] = skycoord[:, i]
+                data_out[skycoord_name[i]] = skycoord[:, i]
 
         self.logger.info("Wrote shuffled catalogue nobj=%i: %s", len(data_out), self.config['out_cat'])
 

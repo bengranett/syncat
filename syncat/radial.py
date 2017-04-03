@@ -106,12 +106,13 @@ class Radial(pype):
 
         data_out = OrderedDict({'z': redshift})
 
-        dim = len(misc.ensurelist(self.config['skycoord_name']))
+        skycoord_name = misc.ensurelist(self.config['skycoord_name'])
+        dim = len(skycoord_name)
         if dim == 1:
-            data_out[self.config['skycoord_name']] = skycoord
+            data_out[skycoord_name[0]] = skycoord
         else:
             for i in range(dim):
-                data_out[self.config['skycoord_name'][i]] = skycoord[:, i]
+                data_out[skycoord_name[i]] = skycoord[:, i]
 
         print data_out.keys()
         data_out = misc.dict_to_structured_array(data_out)
