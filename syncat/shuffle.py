@@ -17,7 +17,14 @@ import time
 
 
 class Shuffle(pype):
-    """ SynCat mode to generate a random catalogue by shuffling."""
+    """ SynCat mode to generate a random catalogue by shuffling.
+
+    Parameters
+    ----------
+    mask : minimask.Mask instance
+        mask describing survey geometry to sample from.  If None, sample from full-sky.
+    """
+
     _default_params = {}
 
     def __init__(self, config={}, mask=None, **kwargs):
@@ -27,7 +34,17 @@ class Shuffle(pype):
         self.mask = mask
 
     def sample_sky(self, zone=None, nside=None, order=None):
-        """ """
+        """ Sample sky coordinates.
+
+        Parameters
+        ----------
+        zone : int, list
+            optional healpix zone index or list of indices from which to sample.  Otherwise sample from all zones.
+        nside : int
+            healpix nside for zone pixelization
+        order : str
+            healpix ordering for zone pixelization
+        """
         return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
                                                             cell=zone, nside=nside))
 
@@ -36,7 +53,17 @@ class Shuffle(pype):
         pass
 
     def sample(self, filename=None):
-        """ shuffle catalogue. """
+        """ shuffle catalogue. 
+
+        Parameters
+        ----------
+        filename : str
+            optional path to input catalogue
+
+        Returns
+        -------
+        numpy strucarray : random catalogue
+        """
 
         if filename is None:
             filename = self.config['in_cat']

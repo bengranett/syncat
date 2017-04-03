@@ -24,7 +24,17 @@ import time
                         help='give hints about parameter distributions')
 @depends_on(Syn)
 class GaussianMixtureModel(pype):
-    """ SynCat mode to generate random catalogue by sampling from a gaussian mixture model."""
+    """ SynCat mode to generate random catalogue by sampling from a gaussian mixture model.
+
+    Parameters
+    ----------
+    mask : minimask.Mask instance
+        mask describing survey geometry to sample from.  If None, sample from full-sky.
+    cat_model : str
+        path to file with catalogue model to load
+    hints_file : str
+        path to file with hints about parameter distributions
+    """
 
     def __init__(self, config={}, mask=None, **kwargs):
         """ """
@@ -38,12 +48,24 @@ class GaussianMixtureModel(pype):
         self.syn = None
 
     def sample_sky(self, zone=None, nside=None, order=None):
-        """ """
+        """ Sample sky coordinates.
+
+        Parameters
+        ----------
+        zone : int, list
+            optional healpix zone index or list of indices from which to sample.  Otherwise sample from all zones.
+        nside : int
+            healpix nside for zone pixelization
+        order : str
+            healpix ordering for zone pixelization
+        """
         return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
                                                             cell=zone, nside=nside))
 
     def load_hints(self):
-        """ """
+        """ Load the hints file.
+        The hints file contains information about the parameter distributions.
+        """
         self.hints = {}
 
         if os.path.exists(self.config['hints_file']):
@@ -160,7 +182,12 @@ class GaussianMixtureModel(pype):
         self.syn.save(self.config['cat_model'])
 
     def sample(self):
-        """ """
+        """ Sample from the Gaussian mixture model.
+
+        Returns
+        -------
+        numpy strucarray : random catalogue
+        """
         if self.syn is None:
             if not os.path.exists(self.config['cat_model']):
                 raise Exception("Cannot load catalogue model.  Files does not exist: %s"%self.config['cat_model'])

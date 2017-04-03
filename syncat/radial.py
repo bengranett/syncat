@@ -24,7 +24,19 @@ import time
 @add_param('zdist_interp', metavar='name', default='pchip', choices=('linear','pchip'), type=str,
     help='method to interpolate cumulative distribution function')
 class Radial(pype):
-    """ SynCat mode to generate a random catalogue by drawing redshift from a distribution."""
+    """ SynCat mode to generate a random catalogue by drawing redshift from a distribution.
+
+    Parameters
+    ----------
+    mask : minimask.Mask instance
+        mask describing survey geometry to sample from.  If None, sample from full-sky.
+    zdist_file : str
+        path to file with catalogue model to load
+    zdist_interp : str
+        method to interpolate cumulative distribution function (default pchip)
+    zdist : tuple
+        redshift distribution histogram in tuple form (bin_edges, n_z)
+    """
 
     def __init__(self, config={}, mask=None, zdist=None, **kwargs):
         """ """
@@ -81,7 +93,17 @@ class Radial(pype):
         self.logger.info("Loaded redshift distribution file %s.", filename)
 
     def sample_sky(self, zone=None, nside=None, order=None):
-        """ """
+        """ Sample sky coordinates.
+
+        Parameters
+        ----------
+        zone : int, list
+            optional healpix zone index or list of indices from which to sample.  Otherwise sample from all zones.
+        nside : int
+            healpix nside for zone pixelization
+        order : str
+            healpix ordering for zone pixelization
+        """
         return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=int(self.config['count']),
                                                             cell=zone, nside=nside))
 
@@ -90,7 +112,12 @@ class Radial(pype):
         pass
 
     def sample(self):
-        """ Draw samples from the radial selection function."""
+        """ Draw samples from the radial selection function.
+
+        Returns
+        -------
+        numpy strucarray : random catalogue
+        """
         if self.config['overwrite']:
             if os.path.exists(self.config['out_cat']):
                 self.logger.info("overwriting existing catalogue: %s", self.config['out_cat'])
