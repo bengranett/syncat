@@ -16,9 +16,9 @@ import pypelid.utils.misc as misc
 from minimask.mask import Mask
 from minimask.mask import sphere
 
-import gmm
-import radial
-import shuffle
+import methods.gmm as gmm
+import methods.radial as radial
+import methods.shuffle as shuffle
 
 import time
 
