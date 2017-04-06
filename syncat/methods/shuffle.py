@@ -11,8 +11,6 @@ from astropy.table import Table
 
 from pypeline import pype
 
-import syncat.misc as misc
-
 import time
 
 
