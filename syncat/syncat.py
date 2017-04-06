@@ -12,7 +12,6 @@ from astropy.table import Table
 
 from pypeline import pype, Config, add_param, depends_on
 
-import pypelid.utils.misc as misc
 from minimask.mask import Mask
 from minimask.mask import sphere
 
@@ -29,8 +28,8 @@ ZDIST_MODE = 'radial'
 
 @add_param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog')
 @add_param("input_format", metavar='fmt', default=None, type=str, help='input catalog format')
-@add_param("out_cat", metavar='filename', default='out/syn.pypelid.hdf5', type=str, help='catalog file to write')
-@add_param("output_format", metavar='fmt', default=None, type=str, help='output catalog format')
+@add_param("out_cat", metavar='filename', default='randoms.txt', type=str, help='catalog file to write')
+@add_param("output_format", metavar='fmt', default='ascii', type=str, help='output catalog format')
 @add_param('mask_file', metavar='filename', default=None, type=str, help='load pypelid mask file to specify survey geometry')
 @add_param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE, ZDIST_MODE),
 				help='method to generate catalogue (gmm, shuffle, radial)')
@@ -124,6 +123,7 @@ class SynCat(pype):
 	def write_cat(self, data):
 		""" """
 		table = Table(data=data)
+		print self.config
 		table.write(self.config['out_cat'], format=self.config['output_format'],
 			overwrite=self.config['overwrite'])
 		self.logger.info("wrote catalogue %s", self.config['out_cat'])
@@ -149,9 +149,6 @@ def main(args=None):
 	logging.info("\n" + banner)
 	logging.info(config)
 
-	# Get code version
-	git = misc.GitEnv()
-
 	# Run code
 	try:
 		S = SynCat(config)
@@ -159,7 +156,6 @@ def main(args=None):
 	except Exception as e:
 		raise
 		print >>sys.stderr, traceback.format_exc()
-		logging.debug(misc.GitEnv())
 
 if __name__ == '__main__':
 	main()

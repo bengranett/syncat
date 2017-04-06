@@ -11,7 +11,7 @@ from astropy.table import Table
 
 from pypeline import pype
 
-import pypelid.utils.misc as misc
+import misc
 
 import time
 

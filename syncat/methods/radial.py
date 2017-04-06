@@ -12,7 +12,7 @@ from astropy.table import Table
 
 from pypeline import pype, add_param
 
-import pypelid.utils.misc as misc
+import misc
 
 from sample_dist import sample_dist
 

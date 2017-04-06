@@ -12,7 +12,6 @@ from astropy.table import Table
 
 from pypeline import pype, add_param, depends_on
 
-import pypelid.utils.misc as misc
 from syn import Syn
 
 import time
