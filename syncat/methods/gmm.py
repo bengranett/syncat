@@ -156,7 +156,7 @@ class GaussianMixtureModel(pype):
                 pass
 
         if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
-            skycoord_name = misc.ensurelist(self.config['skycoord_name'])
+            skycoord_name = self.config['skycoord_name']
             dim = len(skycoord_name)
 
             if dim == 1:
@@ -200,7 +200,7 @@ class GaussianMixtureModel(pype):
 
         randoms = self.syn.sample(n=count)
         if self.config['sample_sky']:
-            skycoord_name = misc.ensurelist(self.config['skycoord_name'])
+            skycoord_name = self.config['skycoord_name']
 
             dim = len(skycoord_name)
 

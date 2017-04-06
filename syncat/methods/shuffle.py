@@ -11,7 +11,7 @@ from astropy.table import Table
 
 from pypeline import pype
 
-import misc
+import syncat.misc as misc
 
 import time
 
@@ -82,7 +82,7 @@ class Shuffle(pype):
 
         data_out = np.random.choice(data, size=len(skycoord), replace=True)
 
-        skycoord_name = misc.ensurelist(self.config['skycoord_name'])
+        skycoord_name = self.config['skycoord_name']
         dim = len(skycoord_name)
         if dim == 1:
             data_out[skycoord_name[0]] = skycoord

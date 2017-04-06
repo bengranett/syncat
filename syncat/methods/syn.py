@@ -8,7 +8,8 @@ from sklearn import mixture, decomposition
 
 from pypeline import pype, add_param
 
-from misc import increment_path, flatten_struc_array
+from syncat.misc import flatten_struc_array
+
 
 def struc_array_insert(arr, data, labels, index=0, truncate=True):
 	""" Insert data into a structured array.

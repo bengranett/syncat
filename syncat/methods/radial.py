@@ -12,7 +12,7 @@ from astropy.table import Table
 
 from pypeline import pype, add_param
 
-import misc
+import syncat.misc as misc
 
 from sample_dist import sample_dist
 
@@ -133,7 +133,7 @@ class Radial(pype):
 
         data_out = OrderedDict({'z': redshift})
 
-        skycoord_name = misc.ensurelist(self.config['skycoord_name'])
+        skycoord_name = self.config['skycoord_name']
         dim = len(skycoord_name)
         if dim == 1:
             data_out[skycoord_name[0]] = skycoord

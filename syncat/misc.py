@@ -7,11 +7,6 @@
 
 import numpy as np
 
-def ensurelist(supposed_list):
-	if isinstance(supposed_list,list):
-		return supposed_list
-	else:
-		return [supposed_list]
 
 def dict_to_structured_array(data_dict):
 	""" Convert a dictionary of numpy arrays to a structured array. 
@@ -32,12 +27,13 @@ def dict_to_structured_array(data_dict):
 		if len(arr.shape)>1:
 			dim = arr.shape[1:]
 
-
 		dtypes.append((name, arr.dtype, dim))
 
 	lengths = np.array(lengths)
 	if not np.all(lengths == lengths[0]):
 		raise ValueError("Not all arrays in the dictionary have the same length.")
+
+	print dtypes
 
 	# initialize the empty structured array
 	struc_array = np.zeros(lengths[0], dtype=dtypes)
