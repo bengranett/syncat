@@ -33,20 +33,20 @@ ZDIST_MODE = 'radial'
 @add_param('mask_file', metavar='filename', default=None, type=str, help='load pypelid mask file to specify survey geometry')
 @add_param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE, ZDIST_MODE),
 				help='method to generate catalogue (gmm, shuffle, radial)')
-@add_param('sample', default=False, action="store_true",
+@add_param('sample', default=False, type='bool',
 				help="generate samples and save output catalogue.")
-@add_param('fit', default=False, action="store_true",
+@add_param('fit', default=False, type='bool',
 						help="fit a catalogue model and save to file.")
 @add_param('density', metavar='x', default=None, type=float, help="number density of objects to synthesize (n/sqr deg)")
 @add_param('count', alias='n', metavar='n', default=None, type=float, help="number of objects to synthesize")
 @add_param('skip', metavar='name', default=['id', 'num', 'skycoord', 'alpha', 'delta'], 
 				nargs='*', help='names of parameters that should be ignored')
 @add_param('add_columns', metavar='name', default=[], nargs='*', help='add these columns with zeros if they are present in input catalogue')
-@add_param('sample_sky', default=True, action='store_true', help='sample sky coordinates')
+@add_param('sample_sky', default=True, type='bool', help='sample sky coordinates')
 @add_param('skycoord_name', metavar='name', default=('alpha', 'delta'), nargs='*', help='column name(s) of sky coordinates')
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
-@add_param('quick', default=False, action='store_true', help='truncate the catalogue for a quick test run')
-@add_param('overwrite', default=False, action='store_true', help='overwrite model fit')
+@add_param('quick', default=False, type='bool', help='truncate the catalogue for a quick test run')
+@add_param('overwrite', default=False, type='bool', help='overwrite model fit')
 @depends_on(gmm.GaussianMixtureModel, shuffle.Shuffle, radial.Radial)
 class SynCat(pype):
 	""" SynCat """

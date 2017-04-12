@@ -58,7 +58,7 @@ class FitResults(object):
 	help="Mode for modelling the Gaussian components.", hidden=True)
 @add_param('min_fit_size',metavar='n',  default=50, type=int, help="Minimimum size of dataset to do Gaussian fit", hidden=True)
 @add_param('discreteness_count', metavar='n', default=20, type=int, help="If count of unique values is less than this, array is discrete", hidden=True)
-@add_param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='?', help='values that will be treated as discrete.')
+@add_param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='*', type=float, help='values that will be treated as discrete.')
 @add_param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True)
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
 class Syn(pype):
