@@ -73,7 +73,15 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['numpy', 'scipy', 'scikit-learn', 'astropy', 'pypeline'],
+    install_requires=['numpy', 'scipy', 'scikit-learn', 'astropy', 'pypeline', 'minimask'],
+
+    # Specify these in pip url syntax, prepend 'git+' if you want to do fancy things like .git@branch or .git@commit.
+    dependency_links = [
+        'git+https://github.com/bengranett/ConfigArgParseB.git@release#egg=ConfigArgParseB',
+        'git+https://github.com/bengranett/minimask.git#egg=minimask',
+        'git+https://github.com/bengranett/pypeline.git#egg=pypeline',
+        ],
+
 
     # # List additional groups of dependencies here (e.g. development
     # # dependencies). You can install these using the following syntax,
