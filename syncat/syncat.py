@@ -57,13 +57,14 @@ class SynCat(pype):
 		ZDIST_MODE: radial.Radial,
 	}
 
-	def __init__(self, config={}, **kwargs):
+	def __init__(self, mask=None, config={}, **kwargs):
 		""" """
 		self._parse_config(config, **kwargs)
 		self._setup_logging()
 		self.logger.info("Starting SynCat")
 
-		mask = self.load_mask()
+		if mask is None:
+			mask = self.load_mask()
 
 		self.synthesizer = self.modes[config['method']](self.config, mask)
 
