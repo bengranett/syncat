@@ -105,13 +105,13 @@ class Radial(pype):
             healpix ordering for zone pixelization
         """
         return np.transpose(self.mask.draw_random_position(density=self.config['density'], n=self.config['count'],
-                                                            cell=zone, nside=nside))
+                                                            cell=zone, nside=nside, order=order))
 
     def fit(self):
         """ """
         pass
 
-    def sample(self, add_columns=()):
+    def sample(self, add_columns=(), zone=None, nside=None, order=None):
         """ Draw samples from the radial selection function.
 
         Returns
@@ -127,7 +127,7 @@ class Radial(pype):
 
         sampler = sample_dist(bin_edges, bin_counts)
 
-        skycoord = self.sample_sky()
+        skycoord = self.sample_sky(zone=zone, nside=nside, order=order)
 
         redshift = sampler(len(skycoord))
 

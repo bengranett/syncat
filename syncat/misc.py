@@ -33,8 +33,6 @@ def dict_to_structured_array(data_dict):
 	if not np.all(lengths == lengths[0]):
 		raise ValueError("Not all arrays in the dictionary have the same length.")
 
-	print dtypes
-
 	# initialize the empty structured array
 	struc_array = np.zeros(lengths[0], dtype=dtypes)
 
