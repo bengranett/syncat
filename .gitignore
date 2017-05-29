@@ -1,0 +1,10 @@
+*.DS_Store
+*~
+*.so
+*.o
+*.a
+*.pyc
+*.dSYM
+*.pdf
+*.dat
+*.fits
