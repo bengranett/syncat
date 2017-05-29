@@ -8,47 +8,45 @@ from sklearn import mixture, decomposition
 
 from pypeline import pype, add_param
 
-from syncat.misc import flatten_struc_array
+from syncat.misc import flatten_struc_array, struc_array_insert
 
 
-def struc_array_insert(arr, data, labels, index=0, truncate=True):
-	""" Insert data into a structured array.
-
-	Parameters
-	----------
-	arr : numpy structured array
-		structured array to insert into
-	data : numpy ndarray
-		array of values to insert
-	labels : sequence
-		column names corresponding to data
-
-	Returns
-	---------
-	int : number of elements inserted
-	"""
-	assert len(data.shape) == 2
-
-	j = index + len(data)
-	if j > len(arr):
-		if not truncate:
-			raise ValueError("data array too large to fit in structured array.")
-		j = len(arr)
-		sub = data[: j - index]
-	else:
-		sub = data
-
-	for i, name in enumerate(labels):
-		arr[name][index:j] = sub[:, i]
-
-	return len(sub)
 
 
 class FitResults(object):
 	""" Data structure to store parameters of the fit. """
+	logger = logging.getLogger(__name__)
+
 	def __init__(self, **kwargs):
 		""" """
 		self.__dict__.update(kwargs)
+
+	def sample_me(self, n):
+		""" """
+		sample, sample_labels = self.gmm.sample(n)
+
+		if self.pca is not None:
+			sample = self.pca.inverse_transform(sample)
+
+		sample = sample * self.sigma + self.mu
+
+		for func, i in self.transform:
+			sample[:, i] = func(sample[:, i])
+
+		return sample
+
+	def pdf(self, points):
+		""" evaluate pdf at a point """
+
+		points_t = points.copy()
+
+		for func, i in self.invtransform:
+			points_t[:, i] = func(points_t[:, i])
+
+		points_t = (points_t - self.mu) / self.sigma
+
+		return self.gmm.score_samples(points_t)
+
 
 @add_param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix")
 @add_param('batch_size', metavar='n', default=10000, type=int, help="Fit in batches of this size", hidden=True)
@@ -60,6 +58,7 @@ class FitResults(object):
 @add_param('discreteness_count', metavar='n', default=20, type=int, help="If count of unique values is less than this, array is discrete", hidden=True)
 @add_param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='*', type=float, help='values that will be treated as discrete.')
 @add_param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True)
+@add_param('tol_const', metavar='x', default=1e5, type=float, help='tolerance constant for checking discrete values', hidden=True)
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
 class Syn(pype):
 	""" """
@@ -80,8 +79,15 @@ class Syn(pype):
 	def load(self, path):
 		""" Load a catalogue model file from a previous run. """
 		if path is not None and os.path.exists(path):
-			self.labels, self.fit_results, self.other_dists, self.hints, self.dtype = pickle.load(file(path))
+			self.undump(pickle.load(file(path)))
 			self.logger.info("Loaded %s, got %i fit results.", path, len(self.fit_results))
+
+	def dump(self):
+		return self.labels, self.fit_results, self.other_dists, self.hints, self.dtype, self.lookup
+
+	def undump(self, dump):
+		""" """
+		self.labels, self.fit_results, self.other_dists, self.hints, self.dtype, self.lookup = dump
 
 	def save(self, path=None):
 		""" Save the catalogue model file. """
@@ -98,7 +104,7 @@ class Syn(pype):
 		# if os.path.exists(path):
 			# self.logger.warning("File exists: %s.  Will not overwrite.", path)
 		# else:
-		pickle.dump((self.labels, self.fit_results, self.other_dists, self.hints, self.dtype), file(path, 'w'))
+		pickle.dump(self.dump, file(path, 'w'))
 		self.logger.info("wrote %s", path)
 
 	def _fit(self, data, k=30, loops=10):
@@ -143,7 +149,7 @@ class Syn(pype):
 		best_aic = None
 		aic = None
 		for i in range(loops):
-			G = mixture.GMM(n_components=k, covariance_type=self.config['covariance_mode'])
+			G = mixture.GaussianMixture(n_components=k, covariance_type=self.config['covariance_mode'])
 			G.fit(data_w)
 			if not G.converged_:
 				continue
@@ -192,14 +198,17 @@ class Syn(pype):
 
 		# log columns that are positive
 		logtransform = []
+		invlogtransform = []
 		for i in range(data.shape[1]):
 			low, high = data[:, i].min(), data[:, i].max()
 			assert high > low
 			if low > 0 and high / low > self.config['log_crit']:
+				pass
 				# self.logger.info("\nlog transform %s %s %s", labels[i], low, high)
-				data[:, i] = np.log(data[:, i])
+				#data[:, i] = np.log(data[:, i])
 
-				logtransform.append((np.exp, i))
+				#logtransform.append((np.exp, i))
+				#invlogtransform.append((np.log, i))
 
 		bins = np.linspace(0, n, nbatch + 1).astype(int)
 
@@ -221,11 +230,20 @@ class Syn(pype):
 			fit.labels = labels
 			fit.insert_cmd = insert_cmd
 			fit.transform = logtransform
+			fit.invtransform = invlogtransform
+
+			fit.hash = hash(tuple(fit.insert_cmd))
 
 			self.fit_results.append(fit)
 
 	def _branch_fit(self, data, labels, column=0, insert=[]):
-		""" """
+		""" This routine is called recursively.  
+
+		1. If column i is the last column add GMM fit job
+		1. Identify discrete values in column i
+		2. For each discrete value do a selection on the data table, increment the column
+		   and call _branch_fit again
+		"""
 		n, dim = data.shape
 		assert dim < n
 
@@ -239,7 +257,7 @@ class Syn(pype):
 			discrete = True
 			special_values = values
 		else:
-			# otherwise us a list of default special values eg 0, -99, nan,...
+			# otherwise use a list of default special values eg 0, -99, nan,...
 			discrete = False
 			special_values = self.config['special_values']
 
@@ -247,7 +265,7 @@ class Syn(pype):
 
 		# compute absolute tolerance for equality
 		mu = np.abs(data[:, column]).mean()
-		tol = mu / 1e5
+		tol = mu / self.config['tol_const']
 		for value in special_values:
 			# find special values in the array
 			matches = np.isclose(data[:, column], value, equal_nan=True, atol=tol)
@@ -264,7 +282,6 @@ class Syn(pype):
 
 		# what remains after the discrete values
 		if np.sum(unmatched) > self.config['min_fit_size']:
-			data_nz = data[unmatched]
 			self._branch_fit(data[unmatched], labels[:], column + 1, insert=insert)
 
 	def progress_bar(self):
@@ -309,7 +326,10 @@ class Syn(pype):
 			if instruction == 'uniform':
 				for hint in hints:
 					key = hint[0]
-					i = _labels.index(key)
+					try:
+						i = _labels.index(key)
+					except ValueError:
+						continue
 					_labels.pop(i)
 					data = np.delete(data, i, axis=1)
 					self.other_dists.append((instruction, key, hint))
@@ -317,16 +337,18 @@ class Syn(pype):
 				for hint in hints:
 					key = hint[0]
 					sigma = float(hint[1])
-					i = _labels.index(key)
+					try:
+						i = _labels.index(key)
+					except ValueError:
+						continue
 					self.logger.info("Smoothing %s sigma=%f", key, sigma)
 					data[:, i] += np.random.normal(0, sigma, data.shape[0])
 
 		return data, _labels
 
-
 	def fit(self, data_in, dtype=None):
 		""" Fit the data with a Gaussian mixture model.
-		The data is partitioned to handle discrete columns and special values.
+		The data are partitioned to handle discrete columns and special values.
 
 		Parameters
 		----------
@@ -342,10 +364,11 @@ class Syn(pype):
 		else:
 			self.dtype = dtype
 
-		data = flatten_struc_array(data_in)
+		data = flatten_struc_array(data_in, type='d')
 
 		data, labels = self.process_hints(data)
 
+		self.discrete_values = {}
 		self.fits_to_run = []
 		self._branch_fit(data, labels[:])
 
@@ -362,8 +385,35 @@ class Syn(pype):
 				break
 			self.single_fit(d, labels=labels, insert_cmd=ins_cmd)
 
+		self.lookup = {}
+		for fit in self.fit_results:
+			if fit.hash not in self.lookup:
+				self.lookup[fit.hash] = []
+			self.lookup[fit.hash].append(fit)
+
 		if self.config['verbose'] > 0:
 			sys.stderr.write("\n")
+
+	def pdf(self, point):
+		""" Evaluate the probability distribution function at a point
+
+		Parameters
+		----------
+
+		Returns
+		-------
+		"""
+		for fit in self.fit_results:
+
+			point_t = point.copy()
+
+			print fit.insert_cmd
+			continue
+
+			for func, i in fit.invlogtransform:
+				point_t[i] = func(point[i])
+
+			point_t = (point_t - fit.mu) / fit.sigma
 
 
 	def sample_dist(self, dist, hint, n):
@@ -411,15 +461,8 @@ class Syn(pype):
 				start = count_total
 				count = 0
 				while count < batch:
-					sample = fit.gmm.sample(batch - count)
 
-					if fit.pca is not None:
-						sample = fit.pca.inverse_transform(sample)
-
-					sample = sample * fit.sigma + fit.mu
-
-					for func, i in fit.transform:
-						sample[:, i] = func(sample[:, i])
+					sample = fit.sample_me(batch - count)
 
 					if 'truncate' in self.hints:
 						for name, low, high in self.hints['truncate']:
@@ -428,6 +471,7 @@ class Syn(pype):
 							except ValueError:
 								continue
 							select = np.where((sample[:, i] > low) & (sample[:, i] < high))
+
 							n_0 = len(sample)
 							sample = sample[select]
 							self.logger.debug("truncating %s %s %s: %i -> %i", name, low, high, n_0, len(sample))

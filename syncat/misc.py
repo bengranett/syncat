@@ -62,7 +62,7 @@ def concatenate_dtypes(dtypes):
 			dtype_out.append((name, dtype[name]))
 	return np.dtype(dtype_out)
 
-def flatten_struc_array(arr):
+def flatten_struc_array(arr, type=None):
 	"""Convert a structured array to a numpy ndarray without column names.
 
 	The columns of the input array must be 1-dimensional and all of the same type.
@@ -79,13 +79,46 @@ def flatten_struc_array(arr):
 	if len(arr.dtype)==0:
 		return arr
 
-	t = arr.dtype[0]
+	if type is None:
+		type = arr.dtype[0]
 
 	ncol = len(arr.dtype)
 	nrow = len(arr)
-	arr_out = np.zeros((nrow, ncol), dtype=t)
+	arr_out = np.zeros((nrow, ncol), dtype=type)
 
 	for i, name in enumerate(arr.dtype.names):
 		arr_out[:,i] = arr[name]
 
 	return arr_out
+
+def struc_array_insert(arr, data, labels, index=0, truncate=True):
+	""" Insert data into a structured array.
+
+	Parameters
+	----------
+	arr : numpy structured array
+		structured array to insert into
+	data : numpy ndarray
+		array of values to insert
+	labels : sequence
+		column names corresponding to data
+
+	Returns
+	---------
+	int : number of elements inserted
+	"""
+	assert len(data.shape) == 2
+
+	j = index + len(data)
+	if j > len(arr):
+		if not truncate:
+			raise ValueError("data array too large to fit in structured array.")
+		j = len(arr)
+		sub = data[: j - index]
+	else:
+		sub = data
+
+	for i, name in enumerate(labels):
+		arr[name][index:j] = sub[:, i]
+
+	return len(sub)

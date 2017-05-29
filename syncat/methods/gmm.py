@@ -6,6 +6,7 @@ gaussian mixture model
 import sys
 import os
 import numpy as np
+import logging
 from collections import OrderedDict
 
 from astropy.table import Table
@@ -13,6 +14,7 @@ from astropy.table import Table
 from pypeline import pype, add_param, depends_on
 
 from syn import Syn
+import syncat.misc as misc
 
 import time
 
@@ -58,7 +60,7 @@ class GaussianMixtureModel(pype):
         order : str
             healpix ordering for zone pixelization
         """
-        return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+        return np.transpose(self.mask.draw_random_position(density=self.config['density'], n=self.config['count'],
                                                             cell=zone, nside=nside))
 
     def load_hints(self):
@@ -129,7 +131,7 @@ class GaussianMixtureModel(pype):
         for name in table.columns:
             hit = False
             for skip in self.config['skip']:
-                if skip.lower() in name.lower():
+                if skip.lower() == name.lower():
                     hit = True
                     self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
                     other_dtypes[name] = np.dtype([(name.encode('ascii'), table.dtype[name])])
@@ -166,8 +168,6 @@ class GaussianMixtureModel(pype):
                 skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
 
             dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
-
-        print dtype
 
         if self.config['quick']:
             table = table[:10000]
