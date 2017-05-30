@@ -102,7 +102,7 @@ class SynCat(pype):
 
 		if self.config['sample'] or sample:
 			if os.path.exists(self.config['out_cat']) and not self.config['overwrite']:
-				self.logger.info("Stopping because output file exists and will not be over-written: %s", self.config['out_cat'])
+				self.logger.critical("Stopping early because output file exists and should not be over-written: %s", self.config['out_cat'])
 				return
 
 		if self.config['fit']:

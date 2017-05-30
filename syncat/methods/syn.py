@@ -45,7 +45,7 @@ class FitResults(object):
 
 		points_t = (points_t - self.mu) / self.sigma
 
-		return self.gmm.score_samples(points_t)
+		return np.exp(self.gmm.score_samples(points_t))
 
 
 @add_param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix")
