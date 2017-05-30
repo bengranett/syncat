@@ -58,36 +58,8 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
         self.syn = None
 
-
-    def fit(self, filename=None, givenfile=None):
-        """ Fit a Gaussian mixture model to the input catalogue.
-
-        Parameters
-        ----------
-        filename : str
-            path to input catalogue.
-        """
-        if filename is None:
-            filename = self.config['in_cat']
-
-        if os.path.exists(self.config['cat_model']) and not self.config['overwrite']:
-            self.logger.info("reading %s", self.config['cat_model'])
-
-            syn_dump, syn_sub_dump = pickle.load(file(self.config['cat_model']))
-
-            self.syn = Syn()
-            self.syn.undump(syn_dump)
-
-            self.syn_sub = Syn()
-            self.syn_sub.undump(syn_sub_dump)
-
-            self.labels = self.syn.labels
-            return
-
-        hints = self.load_hints()
-
-        self.logger.info("loading %s", filename)
-
+    def load_catalog(self, filename, format, columns):
+        """ """
         table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
 
         other_dtypes = {}
@@ -144,6 +116,43 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
 
             dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
+
+        return table, table_sub, dtype
+
+
+    def fit(self, filename=None, givenfile=None):
+        """ Fit a Gaussian mixture model to the input catalogue.
+
+        Parameters
+        ----------
+        filename : str
+            path to input catalogue.
+        """
+        if filename is None:
+            filename = self.config['in_cat']
+
+        if os.path.exists(self.config['cat_model']) and not self.config['overwrite']:
+            self.logger.info("reading %s", self.config['cat_model'])
+
+            syn_dump, syn_sub_dump = pickle.load(file(self.config['cat_model']))
+
+            self.syn = Syn()
+            self.syn.undump(syn_dump)
+
+            self.syn_sub = Syn()
+            self.syn_sub.undump(syn_sub_dump)
+
+            self.labels = self.syn.labels
+            return
+
+        hints = self.load_hints()
+
+        self.logger.info("loading %s", filename)
+
+        table, table_sub, dtype = self.load_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
+
+        sel = (table_sub['z'] > 0.9) & (table_sub['z'] < 1.8) & (table_sub['stellar_mass'] > 10)
+        table_sub = table_sub[sel]
 
         if self.config['quick']:
             table = table[:50000]
