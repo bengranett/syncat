@@ -59,6 +59,8 @@ class FitResults(object):
 @add_param('special_values', metavar='x', default=[0, -99, float('nan')], nargs='*', type=float, help='values that will be treated as discrete.')
 @add_param('log_crit', metavar='x', default=1, help='will try a log transform if the dynamic range is greater than this and all positive.', hidden=True)
 @add_param('tol_const', metavar='x', default=1e5, type=float, help='tolerance constant for checking discrete values', hidden=True)
+@add_param('gmm_max_iter', metavar='n', default=100, type=int, help='scikit-learn gaussian mixture model max_iter parameter', hidden=True)
+@add_param('gmm_ninit', metavar='n', default=1, type=int, help='scikit-learn gaussian mixture model n init parameter', hidden=True)
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
 class Syn(pype):
 	""" """
@@ -149,7 +151,8 @@ class Syn(pype):
 		best_aic = None
 		aic = None
 		for i in range(loops):
-			G = mixture.GaussianMixture(n_components=k, covariance_type=self.config['covariance_mode'])
+			G = mixture.GaussianMixture(n_components=k, covariance_type=self.config['covariance_mode'], 
+						    max_iter=self.config['gmm_max_iter'], n_init=self.config['gmm_ninit'])
 			G.fit(data_w)
 			if not G.converged_:
 				continue
@@ -162,6 +165,7 @@ class Syn(pype):
 				best_aic = aic
 
 		if best is None:
+			np.save('datadump.npy', data_w)
 			raise SynException("No good GMM fit was found!")
 
 		G = best
@@ -201,7 +205,11 @@ class Syn(pype):
 		invlogtransform = []
 		for i in range(data.shape[1]):
 			low, high = data[:, i].min(), data[:, i].max()
-			assert high > low
+			try:
+				assert high > low
+			except:
+				print i,labels[i],low,high
+				raise
 			if low > 0 and high / low > self.config['log_crit']:
 				pass
 				# self.logger.info("\nlog transform %s %s %s", labels[i], low, high)
