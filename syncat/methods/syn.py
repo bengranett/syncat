@@ -45,14 +45,14 @@ class FitResults(object):
 
 		p = np.exp(self.gmm.score_samples(sample))
 
-		self.norm = 1. / p.sum()
+		self.norm = 1. / p.max()
 
 		return self.norm
 
 	def pdf(self, points):
 		""" evaluate pdf at a point """
-		if self.norm is None:
-			self.determine_pdf_norm()
+		#if self.norm is None:
+	#		self.determine_pdf_norm()
 
 		points_t = points.copy()
 
@@ -61,7 +61,7 @@ class FitResults(object):
 
 		points_t = (points_t - self.mu) / self.sigma
 
-		return self.norm * np.exp(self.gmm.score_samples(points_t))
+		return np.exp(self.gmm.score_samples(points_t))
 
 
 @add_param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix")

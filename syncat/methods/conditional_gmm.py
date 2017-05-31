@@ -63,6 +63,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
     def load_catalog(self, filename, format, columns, hints):
         """ """
         table = fileio.read_catalogue(filename, format=format, columns=columns)
+        table_dtype = table.dtype
 
         table_sub = table
 
@@ -76,7 +77,6 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 if skip.lower() == name.lower():
                     hit = True
                     self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
-                    other_dtypes[name] = np.dtype([(name.encode('ascii'), table.dtype[name])])
                     break
 
             if not hit:
@@ -101,25 +101,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
         self.syn_sub = Syn(labels=properties_sub, hints=hints, config=self.config)
 
         dtype = table.dtype
-        for name in self.config['add_columns']:
-            if name in dtype.names:
-                continue
-            try:
-                dtype = misc.concatenate_dtypes([dtype, other_dtypes[name]])
-            except KeyError:
-                pass
-
-        if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
-            skycoord_name = self.config['skycoord_name']
-            dim = len(skycoord_name)
-
-            if dim == 1:
-                skycoord_dtype = np.dtype([(skycoord_name[0], np.dtype((np.float64, 2)))])
-            elif dim == 2:
-                alpha, delta = skycoord_name
-                skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
-
-            dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
+        dtype = misc.append_dtypes(dtype, self.config['add_columns'], table_dtype)
 
         return table, table_sub, dtype, properties
 
@@ -199,14 +181,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
         self.logger.info("got these columns: %s", ", ".join(cond_table.columns))
 
-        dtype = self.syn.dtype
-        for name in self.config['add_columns']:
-            if name in dtype.names:
-                continue
-            try:
-                dtype = misc.concatenate_dtypes([dtype, np.dtype([(name, cond_table.dtype[name])])])
-            except KeyError:
-                pass
+        dtype = misc.append_dtypes(self.syn.dtype, self.config['add_columns'], cond_table.dtype)
 
         n = len(cond_table)
 
@@ -295,7 +270,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
                 r = np.random.uniform(0,1,len(prob))
 
-                keep = prob > r
+                keep = (prob > r) & (prob <= 1)
 
                 rate += np.sum(keep)
                 rate_norm += len(keep)
