@@ -272,6 +272,9 @@ class Syn(pype):
 		assert dim < n
 
 		if column == dim:
+			self.logger.debug(labels)
+			self.logger.debug("min %s", data.min(axis=0))
+			self.logger.debug("max %s", data.max(axis=0))
 			self.fits_to_run.append((data, labels, insert))
 			return
 
