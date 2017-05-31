@@ -58,9 +58,13 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
         self.syn = None
 
-    def load_catalog(self, filename, format, columns):
+        self.norms = {}
+
+    def load_catalog(self, filename, format, columns, hints):
         """ """
-        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
+        table = fileio.read_catalogue(filename, format=format, columns=columns)
+
+        table_sub = table
 
         other_dtypes = {}
         properties = []
@@ -82,7 +86,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                     properties_sub.append(name)
 
         table = table[properties]
-        table_sub = table[properties_sub]
+        table_sub = table_sub[properties_sub]
 
         if self.logger.isEnabledFor(logging.INFO):
             mesg = ""
@@ -117,7 +121,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
             dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
 
-        return table, table_sub, dtype
+        return table, table_sub, dtype, properties
 
 
     def fit(self, filename=None, givenfile=None):
@@ -149,10 +153,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
         self.logger.info("loading %s", filename)
 
-        table, table_sub, dtype = self.load_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
-
-        sel = (table_sub['z'] > 0.9) & (table_sub['z'] < 1.8) & (table_sub['stellar_mass'] > 10)
-        table_sub = table_sub[sel]
+        table, table_sub, dtype, properties = self.load_catalog(filename, self.config['input_format'], self.config['input_columns'], hints)
 
         if self.config['quick']:
             table = table[:50000]
@@ -274,13 +275,23 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
                 prob = full_fit.pdf(full_sample)
 
+
                 ii = p0 > 0
                 prob[ii] = prob[ii] / p0[ii]
-
                 pmax = prob.max()
-                if pmax == 0: continue
 
-                self.logger.debug("pmax %f", pmax)
+                if fit.hash in self.norms:
+                    norm = self.norms[fit.hash]
+                else:
+                    self.logger.debug("estimating norm fit %s",fit.hash)
+                    norm = 1./pmax
+                    self.norms[fit.hash] = norm
+
+                pmax *= norm
+                prob *= norm
+
+                self.logger.debug("%s pmax %f len %i", fit.hash,  pmax, len(prob))
+                if pmax == 0: continue
 
                 r = np.random.uniform(0,1,len(prob))
 
@@ -290,7 +301,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 rate_norm += len(keep)
 
                 if self.logger.isEnabledFor(logging.DEBUG):
-                    if not iter_count%100:
+                    if not iter_count%10:
                         message = "{:3.0f} sec - loop {:d} - {:d} samples remaining ({:3.1f}% done) accept rate: {:e}".format(time.time()-t0, loop, len(syndata) - count, count*100./len(syndata), rate*1./rate_norm)
                         sys.stderr.write("\r"+message)
 

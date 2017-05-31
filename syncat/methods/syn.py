@@ -43,9 +43,9 @@ class FitResults(object):
 
 		sample, sample_labels = self.gmm.sample(n)
 
-		p = np.exp(self.gmm.score_samples(points_t))
+		p = np.exp(self.gmm.score_samples(sample))
 
-		self.norm = 1. / p.max()
+		self.norm = 1. / p.sum()
 
 		return self.norm
 
