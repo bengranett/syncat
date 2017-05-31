@@ -258,9 +258,9 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 if fit.hash in self.norms:
                     norm = self.norms[fit.hash]
                 else:
-                    self.logger.debug("estimating norm fit %s",fit.hash)
                     norm = 1./pmax
                     self.norms[fit.hash] = norm
+                    self.logger.debug("estimating norm fit max=%f", pmax)
 
                 pmax *= norm
                 prob *= norm
