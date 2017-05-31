@@ -58,7 +58,6 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
         self.syn = None
 
-        self.norms = {}
 
     def load_catalog(self, filename, format, columns, hints):
         """ """
@@ -200,6 +199,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
         count = 0
         loop = 0
         rate = 0
+        failrate = 0
         rate_norm = 0
         iter_count = 0
         t0 = time.time()
@@ -250,34 +250,25 @@ class ConditionalMixtureModel(GaussianMixtureModel):
 
                 prob = full_fit.pdf(full_sample)
 
-
                 ii = p0 > 0
                 prob[ii] = prob[ii] / p0[ii]
                 pmax = prob.max()
-
-                if fit.hash in self.norms:
-                    norm = self.norms[fit.hash]
-                else:
-                    norm = 1./pmax
-                    self.norms[fit.hash] = norm
-                    self.logger.debug("estimating norm fit max=%f", pmax)
-
-                pmax *= norm
-                prob *= norm
 
                 self.logger.debug("%s pmax %f len %i", fit.hash,  pmax, len(prob))
                 if pmax == 0: continue
 
                 r = np.random.uniform(0,1,len(prob))
 
-                keep = (prob > r) & (prob <= 1)
+                too_big = prob > 1
+                keep = (prob > r) & (not too_big)
 
                 rate += np.sum(keep)
                 rate_norm += len(keep)
+                failrate += np.sum(too_big)
 
                 if self.logger.isEnabledFor(logging.DEBUG):
                     if not iter_count%10:
-                        message = "{:3.0f} sec - loop {:d} - {:d} samples remaining ({:3.1f}% done) accept rate: {:e}".format(time.time()-t0, loop, len(syndata) - count, count*100./len(syndata), rate*1./rate_norm)
+                        message = "{:3.0f} sec - loop {:d} - {:d} samples remaining ({:3.1f}% done) accept rate: {:e} fail rate {:e}".format(time.time()-t0, loop, len(syndata) - count, count*100./len(syndata), rate*1./rate_norm, failrate*1./rate_norm)
                         sys.stderr.write("\r"+message)
 
                 sel = sel[keep]
@@ -301,7 +292,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 if count >= n:
                     break
 
-        self.logger.info("loops: %i acceptance rate: %f", loop, rate *1./ rate_norm)
+        self.logger.info("loops: %i acceptance rate: %e, fail rate: %e", loop, rate *1./ rate_norm,failrate*1./rate_norm )
         assert count == n
 
         for instruction, column_name, hint in self.syn.other_dists[::-1]:

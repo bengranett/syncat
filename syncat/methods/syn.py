@@ -51,9 +51,6 @@ class FitResults(object):
 
 	def pdf(self, points):
 		""" evaluate pdf at a point """
-		#if self.norm is None:
-	#		self.determine_pdf_norm()
-
 		points_t = points.copy()
 
 		for func, i in self.invtransform:
