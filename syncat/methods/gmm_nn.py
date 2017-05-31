@@ -78,7 +78,6 @@ class NNMixtureModel(GaussianMixtureModel):
 
         out = np.zeros(len(cond_table), dtype=dtype)
 
-
         cond_data = misc.flatten_struc_array(cond_table[self.config['cond_params']].as_array())
 
         nrandom = int(len(cond_data)*self.config['nn_sampling_factor'])
@@ -87,11 +86,7 @@ class NNMixtureModel(GaussianMixtureModel):
 
         randoms = self.syn.sample(n=nrandom)
 
-        rand_data = []
-        for p in self.config['cond_params']:
-            rand_data.append(randoms[p])
-        rand_data = np.transpose(rand_data)
-
+        rand_data = misc.struc_array_columns(randoms, self.config['cond_params'])
 
         self.logger.debug("Planting neighbor lookup tree ... (n=%i, dim=%i)", *rand_data.shape)
 
@@ -118,23 +113,12 @@ class NNMixtureModel(GaussianMixtureModel):
 
         randoms = randoms[matches]
 
-        columns_added = []
-        for column in cond_table.columns:
-            if column in out.dtype.names:
-                self.logger.debug("Inserting column: %s", column)
-                out[column] = cond_table[column]
-                columns_added.append(column)
+        columns_added = misc.insert_column(cond_table.columns, cond_table, out)
+        columns_added = misc.insert_column(randoms.dtype.names, randoms, out, columns_added=columns_added)
 
         if self.config['output_extra_columns']:
-            for column in randoms.dtype.names:
-                if column in out.dtype.names:
-                    if column in columns_added:
-                        column_out = '_'+column
-                    else:
-                        column_out = column
-                    if column_out in out.dtype.names:
-                        self.logger.debug("Inserting column: %s", column_out)
-                        out[column_out] = randoms[column]
-                        columns_added.append(column)
+            misc.insert_column(config['cond_params'], randoms, out, columns_added=columns_added, translate=lambda x: '_'+x)
+
+        self.logger.debug("Output columns: %s", columns_added)
 
         return out

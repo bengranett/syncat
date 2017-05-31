@@ -149,3 +149,26 @@ def struc_array_insert(arr, data, labels, index=0, truncate=True):
 		arr[name][index:j] = sub[:, i]
 
 	return len(sub)
+
+def struc_array_columns(arr, columns):
+	""" Take columns from a numpy structured array"""
+    out = []
+    for column in columns:
+        out.append(arr[columns])
+   	return np.transpose(out)
+
+
+def insert_column(columns, in_array, out_array, translate=None, columns_added=[]):
+	""" """
+	if translate is None:
+		translate = lambda x: x
+
+	for column in columns:
+		if column in out_array.dtype.names:
+			column_out = translate(column)
+			if column_out in columns_added:
+				continue
+			if column_out in out_array.dtype.names:
+				out_array[column_out] = in_array[column]
+				columns_added.append(column_out)
+	return columns_added
