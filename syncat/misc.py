@@ -1,8 +1,8 @@
 """ Some general tools.
 
- 	https://docs.python.org/2/distutils/introduction.html
+	https://docs.python.org/2/distutils/introduction.html
 
- 	Markovic, 05/03/2015
+	Markovic, 05/03/2015
 """
 
 import numpy as np
@@ -41,6 +41,33 @@ def dict_to_structured_array(data_dict):
 		struc_array[name] = arr
 
 	return struc_array
+
+def append_dtypes(dtype, names, dtype_lookup, translate=None):
+	""" Append a dtype given a list of names
+	
+	Parameters
+	----------
+	dtype : numpy.dtype
+	names : tuple
+	dtype_lookup : dict
+	transalte : func
+
+	Returns
+	-------
+	numpy.dtype
+	"""
+	if translate is None:
+		translate = lambda x: x
+		
+	for name in names:
+		name_out = translate(name)
+		if name_out in dtype.names:
+			continue
+		try:
+			dtype = concatenate_dtypes([dtype, np.dtype([(name_out, dtype_lookup[name])])])
+		except KeyError:
+			pass
+	return dtype
 
 def concatenate_dtypes(dtypes):
 	""" Combine a list of dtypes.

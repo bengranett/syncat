@@ -122,7 +122,7 @@ class Syn(pype):
 		# if os.path.exists(path):
 			# self.logger.warning("File exists: %s.  Will not overwrite.", path)
 		# else:
-		pickle.dump(self.dump, file(path, 'w'))
+		pickle.dump(self.dump(), file(path, 'w'))
 		self.logger.info("wrote %s", path)
 
 	def _fit(self, data, k=30, loops=10):
@@ -444,7 +444,7 @@ class Syn(pype):
 		""" """
 		if dist == 'uniform':
 			low, high = hint[1:3]
-			self.logger.info("random sampling from uniform distribution %s %s %s", low, high, n)
+			self.logger.debug("random sampling from uniform distribution %s %s %s", low, high, n)
 			x = np.random.uniform(low, high, n)
 			return x
 
@@ -498,7 +498,7 @@ class Syn(pype):
 
 							n_0 = len(sample)
 							sample = sample[select]
-							self.logger.debug("truncating %s %s %s: %i -> %i", name, low, high, n_0, len(sample))
+							# self.logger.debug("truncating %s %s %s: %i -> %i", name, low, high, n_0, len(sample))
 
 					insert_count = struc_array_insert(syndata, sample, fit.labels, count_total)
 

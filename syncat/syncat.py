@@ -19,6 +19,7 @@ import methods.gmm as gmm
 import methods.radial as radial
 import methods.shuffle as shuffle
 import methods.conditional_gmm as conditional_gmm
+import methods.gmm_nn as gmm_nn
 
 import time
 
@@ -26,6 +27,7 @@ SHUFFLE_MODE = 'shuffle'
 GMM_MODE = 'gmm'
 ZDIST_MODE = 'radial'
 GMMCOND_MODE = 'conditional'
+GMMNN_MODE = 'nn'
 
 
 @add_param("in_cat", metavar='filename', default='in/galaxies.pypelid.hdf5', type=str, help='input catalog')
@@ -34,7 +36,7 @@ GMMCOND_MODE = 'conditional'
 @add_param("out_cat", metavar='filename', default='randoms.fits', type=str, help='catalog file to write')
 @add_param("output_format", metavar='fmt', default='fits', type=str, help='output catalog format')
 @add_param('mask_file', metavar='filename', default='', type=str, help='load pypelid mask file to specify survey geometry')
-@add_param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE, ZDIST_MODE, GMMCOND_MODE),
+@add_param('method', default=GMM_MODE, type=str, choices=(GMM_MODE, SHUFFLE_MODE, ZDIST_MODE, GMMCOND_MODE, GMMNN_MODE),
 				help='method to generate catalogue (gmm, shuffle, radial, conditional)')
 @add_param('sample', default=False, type='bool',
 				help="generate samples and save output catalogue.")
@@ -59,6 +61,7 @@ class SynCat(pype):
 		SHUFFLE_MODE: shuffle.Shuffle,
 		ZDIST_MODE: radial.Radial,
 		GMMCOND_MODE: conditional_gmm.ConditionalMixtureModel,
+		GMMNN_MODE: gmm_nn.NNMixtureModel,
 	}
 
 	def __init__(self, mask=None, config={}, **kwargs):
