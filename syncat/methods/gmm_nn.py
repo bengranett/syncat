@@ -122,13 +122,12 @@ class NNMixtureModel(GaussianMixtureModel):
 
 		randoms = randoms[matches]
 
-		columns = [col for col in randoms.dtype.names if col not in self.config['cond_params']]
 
-		columns_added = misc.insert_column(columns, randoms, out)
-		self.logger.debug("Columns random sampled: %s", columns_added)
-
-		columns_added2 = misc.insert_column(cond_table.columns, cond_table, out, columns_added=columns_added)
+		columns_added = misc.insert_column(cond_table.columns, cond_table, out, )
 		self.logger.debug("Columns copied from %s: %s", self.config['cond_cat'], columns_added2)
+
+		columns_added2 = misc.insert_column(randoms.dtype.names, randoms, out, columns_added=columns_added)
+		self.logger.debug("Columns random sampled: %s", columns_added2)
 
 		if self.config['output_debug_columns']:
 			columns_added3 = misc.insert_column(self.config['cond_params'], randoms, out, translate=lambda x: '_'+x)
