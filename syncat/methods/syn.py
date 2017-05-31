@@ -19,6 +19,7 @@ class FitResults(object):
 
 	def __init__(self, **kwargs):
 		""" """
+		self.norm = None
 		self.__dict__.update(kwargs)
 
 	def sample_me(self, n):
@@ -35,8 +36,23 @@ class FitResults(object):
 
 		return sample
 
+	def determine_pdf_norm(self, n=1e6):
+		""" """
+		if self.norm is not None:
+			return self.norm
+
+		sample, sample_labels = self.gmm.sample(n)
+
+		p = np.exp(self.gmm.score_samples(points_t))
+
+		self.norm = 1. / p.max()
+
+		return self.norm
+
 	def pdf(self, points):
 		""" evaluate pdf at a point """
+		if self.norm is None:
+			self.determine_pdf_norm()
 
 		points_t = points.copy()
 
@@ -45,7 +61,7 @@ class FitResults(object):
 
 		points_t = (points_t - self.mu) / self.sigma
 
-		return np.exp(self.gmm.score_samples(points_t))
+		return self.norm * np.exp(self.gmm.score_samples(points_t))
 
 
 @add_param('ncomponents', metavar='n', default=10, type=int, help="Number of Gaussian components to mix")

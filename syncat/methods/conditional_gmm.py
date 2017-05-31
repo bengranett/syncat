@@ -277,8 +277,10 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 ii = p0 > 0
                 prob[ii] = prob[ii] / p0[ii]
 
-                if prob.max() == 0: continue
-                prob /= prob.max()
+                pmax = prob.max()
+                if pmax == 0: continue
+
+                self.logger.debug("pmax %f", pmax)
 
                 r = np.random.uniform(0,1,len(prob))
 
