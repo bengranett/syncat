@@ -272,9 +272,9 @@ class Syn(pype):
 		assert dim < n
 
 		if column == dim:
-			self.logger.debug(labels)
-			self.logger.debug("min %s", data.min(axis=0))
-			self.logger.debug("max %s", data.max(axis=0))
+			#self.logger.debug(labels)
+			#self.logger.debug("min %s", data.min(axis=0))
+			#self.logger.debug("max %s", data.max(axis=0))
 			assert np.all(data.max(axis=0) - data.min(axis=0) > 0)
 			self.fits_to_run.append((data, labels, insert))
 			return
@@ -294,7 +294,7 @@ class Syn(pype):
 		# compute absolute tolerance for equality
 		mu = np.abs(data[:, column]).mean()
 		tol = mu / self.config['tol_const']
-		self.logger.debug("%s mu=%f tol=%f : %s", labels[column], mu, tol, special_values)
+		#self.logger.debug("%s mu=%f tol=%f : %s", labels[column], mu, tol, special_values)
 		for value in special_values:
 			# find special values in the array
 			matches = np.isclose(data[:, column], value, equal_nan=True, atol=tol)
@@ -307,7 +307,7 @@ class Syn(pype):
 				labels_cut = labels[:]
 				name = labels_cut.pop(column)
 				ins_cmd = (name, value)
-				self._branch_fit(data_z, labels_cut, column, insert=insert + [ins_cmd])
+				self._branch_fit(data_z, labels_cut, 0, insert=insert + [ins_cmd])
 
 		# what remains after the discrete values
 		if np.sum(unmatched) > self.config['min_fit_size']:
