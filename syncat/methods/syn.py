@@ -290,6 +290,7 @@ class Syn(pype):
 		# compute absolute tolerance for equality
 		mu = np.abs(data[:, column]).mean()
 		tol = mu / self.config['tol_const']
+		self.logger.debug("%s mu=%f tol=%f : %s", labels[column], mu, tol, special_values)
 		for value in special_values:
 			# find special values in the array
 			matches = np.isclose(data[:, column], value, equal_nan=True, atol=tol)
