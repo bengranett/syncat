@@ -15,6 +15,7 @@ from pypeline import pype, add_param, depends_on
 
 from syn import Syn
 import syncat.misc as misc
+import syncat.fileio as fileio
 
 import time
 
@@ -102,7 +103,7 @@ class GaussianMixtureModel(pype):
 
         return self.hints
 
-    def fit(self, filename=None):
+    def fit(self, filename=None, add_columns=True):
         """ Fit a Gaussian mixture model to the input catalogue.
 
         Parameters
@@ -123,9 +124,10 @@ class GaussianMixtureModel(pype):
 
         self.logger.info("loading %s", filename)
 
-        table = Table.read(filename, format=self.config['input_format'])
+        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
 
-        other_dtypes = {}
+        table_dtype = table.dtype
+
         properties = []
 
         for name in table.columns:
@@ -133,8 +135,7 @@ class GaussianMixtureModel(pype):
             for skip in self.config['skip']:
                 if skip.lower() == name.lower():
                     hit = True
-                    self.logger.info("ignoring column '%s' because it includes the string '%s'.", name, skip)
-                    other_dtypes[name] = np.dtype([(name.encode('ascii'), table.dtype[name])])
+                    self.logger.info("ignoring column '%s' because it matches the string '%s'.", name, skip)
                     break
 
             if not hit:
@@ -151,11 +152,8 @@ class GaussianMixtureModel(pype):
         self.syn = Syn(labels=properties, hints=hints, config=self.config)
 
         dtype = table.dtype
-        for name in self.config['add_columns']:
-            try:
-                dtype = misc.concatenate_dtypes([dtype, other_dtypes[name]])
-            except KeyError:
-                pass
+        if add_columns:
+            dtype = misc.append_dtypes(dtype, self.config['add_columns'], table_dtype)
 
         if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
             skycoord_name = self.config['skycoord_name']
