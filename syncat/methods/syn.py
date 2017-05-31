@@ -229,10 +229,10 @@ class Syn(pype):
 			if low > 0 and high / low > self.config['log_crit']:
 				pass
 				# self.logger.info("\nlog transform %s %s %s", labels[i], low, high)
-				#data[:, i] = np.log(data[:, i])
+				data[:, i] = np.log(data[:, i])
 
-				#logtransform.append((np.exp, i))
-				#invlogtransform.append((np.log, i))
+				logtransform.append((np.exp, i))
+				invlogtransform.append((np.log, i))
 
 		bins = np.linspace(0, n, nbatch + 1).astype(int)
 
@@ -272,10 +272,6 @@ class Syn(pype):
 		assert dim < n
 
 		if column == dim:
-			#self.logger.debug(labels)
-			#self.logger.debug("min %s", data.min(axis=0))
-			#self.logger.debug("max %s", data.max(axis=0))
-			assert np.all(data.max(axis=0) - data.min(axis=0) > 0)
 			self.fits_to_run.append((data, labels, insert))
 			return
 
@@ -294,7 +290,6 @@ class Syn(pype):
 		# compute absolute tolerance for equality
 		mu = np.abs(data[:, column]).mean()
 		tol = mu / self.config['tol_const']
-		#self.logger.debug("%s mu=%f tol=%f : %s", labels[column], mu, tol, special_values)
 		for value in special_values:
 			# find special values in the array
 			matches = np.isclose(data[:, column], value, equal_nan=True, atol=tol)
