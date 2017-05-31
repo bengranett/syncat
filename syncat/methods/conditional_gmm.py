@@ -260,7 +260,7 @@ class ConditionalMixtureModel(GaussianMixtureModel):
                 r = np.random.uniform(0,1,len(prob))
 
                 too_big = prob > 1
-                keep = (prob > r) & (not too_big)
+                keep = (prob > r) & (np.logical_not(too_big))
 
                 rate += np.sum(keep)
                 rate_norm += len(keep)
