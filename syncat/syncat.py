@@ -115,7 +115,11 @@ class SynCat(pype):
 
 		if self.config['sample'] or sample:
 			self.logger.info("Starting sampling")
-			data = self.synthesizer.sample()
+			try:
+				data = self.synthesizer.sample()
+			except NoPoints:
+				data = []
+				self.logger.warning("No points were sampled!  Perhaps mask does not align with pointings.")
 			self.write_cat(data)
 			done = True
 

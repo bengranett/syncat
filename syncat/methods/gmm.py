@@ -14,6 +14,7 @@ from astropy.table import Table
 from pypeline import pype, add_param, depends_on
 
 from syn import Syn
+from syncat.error import NoPoints
 import syncat.misc as misc
 import syncat.fileio as fileio
 
@@ -195,6 +196,9 @@ class GaussianMixtureModel(pype):
             count = len(skycoord)
         else:
             count = self.config['count']
+
+        if len(skycoord) == 0:
+            raise NoPoints
 
         randoms = self.syn.sample(n=count)
         if self.config['sample_sky']:

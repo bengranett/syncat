@@ -13,6 +13,7 @@ from astropy.table import Table
 from pypeline import pype, add_param
 
 import syncat.misc as misc
+from syncat.error import NoPoints
 
 from sample_dist import sample_dist
 
@@ -128,8 +129,8 @@ class Radial(pype):
         sampler = sample_dist(bin_edges, bin_counts)
 
         skycoord = self.sample_sky(zone=zone, nside=nside, order=order)
-	if len(skycoord) == 0:
-		raise NoPoints
+        if len(skycoord) == 0:
+    		raise NoPoints
 
         redshift = sampler(len(skycoord))
 
@@ -151,6 +152,3 @@ class Radial(pype):
         self.logger.info("Wrote radial random catalogue nobj=%i: %s", len(data_out), self.config['out_cat'])
 
         return data_out
-
-class NoPoints(Exception):
-	pass

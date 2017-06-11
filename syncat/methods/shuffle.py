@@ -11,6 +11,8 @@ from astropy.table import Table
 
 from pypeline import pype
 
+from syncat.error import NoPoints
+
 import time
 
 
@@ -77,6 +79,9 @@ class Shuffle(pype):
         data = Table.read(filename)
 
         skycoord = self.sample_sky()
+
+        if len(skycoord) == 0:
+            raise NoPoints
 
         data_out = np.random.choice(data, size=len(skycoord), replace=True)
 
