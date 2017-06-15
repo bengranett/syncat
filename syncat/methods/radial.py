@@ -13,7 +13,7 @@ from astropy.table import Table
 from pypeline import pype, add_param
 
 import syncat.misc as misc
-from syncat.error import NoPoints
+from syncat.errors import NoPoints
 
 from sample_dist import sample_dist
 

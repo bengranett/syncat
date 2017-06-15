@@ -11,7 +11,7 @@ from astropy.table import Table
 
 from pypeline import pype
 
-from syncat.error import NoPoints
+from syncat.errors import NoPoints
 
 import time
 

@@ -14,7 +14,7 @@ from astropy.table import Table
 from pypeline import pype, add_param, depends_on
 
 from syn import Syn
-from syncat.error import NoPoints
+from syncat.errors import NoPoints
 import syncat.misc as misc
 import syncat.fileio as fileio
 
