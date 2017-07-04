@@ -6,7 +6,7 @@
 """
 
 import numpy as np
-
+import logging
 
 def dict_to_structured_array(data_dict):
 	""" Convert a dictionary of numpy arrays to a structured array. 
@@ -173,3 +173,20 @@ def insert_column(columns, in_array, out_array, translate=None, columns_added=[]
 				out_array[column_out] = in_array[column]
 				new_columns.append(column_out)
 	return new_columns
+
+def remove_columns(table, skip_columns):
+	""" """
+	properties = []
+
+	for name in table.columns:
+		hit = False
+		for skip in skip_columns:
+			if skip.lower() == name.lower():
+				hit = True
+				logging.info("ignoring column '%s' because it matches the string '%s'.", name, skip)
+				break
+
+		if not hit:
+			properties.append(name)
+
+	return table[properties]
