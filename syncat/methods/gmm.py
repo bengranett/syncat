@@ -129,20 +129,7 @@ class GaussianMixtureModel(pype):
 
         table_dtype = table.dtype
 
-        properties = []
-
-        for name in table.columns:
-            hit = False
-            for skip in self.config['skip']:
-                if skip.lower() == name.lower():
-                    hit = True
-                    self.logger.info("ignoring column '%s' because it matches the string '%s'.", name, skip)
-                    break
-
-            if not hit:
-                properties.append(name)
-
-        table = table[properties]
+        table = misc.remove_columns(table, self.config['skip'])
 
         if self.logger.isEnabledFor(logging.INFO):
             mesg = ""

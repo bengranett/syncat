@@ -11,6 +11,8 @@ from astropy.table import Table
 
 from pypeline import pype
 
+import syncat.fileio as fileio
+import syncat.misc as misc
 from syncat.errors import NoPoints
 
 import time
@@ -45,7 +47,7 @@ class Shuffle(pype):
         order : str
             healpix ordering for zone pixelization
         """
-        return np.transpose(self.mask.draw_random_position(dens=self.config['density'], n=self.config['count'],
+        return np.transpose(self.mask.draw_random_position(density=self.config['density'], n=self.config['count'],
                                                             cell=zone, nside=nside))
 
     def fit(self):
@@ -75,22 +77,45 @@ class Shuffle(pype):
                 self.logger.info("overwriting existing catalogue: %s", self.config['out_cat'])
                 os.unlink(self.config['out_cat'])
 
-        # load full catalogue to shuffle
-        data = Table.read(filename)
-
         skycoord = self.sample_sky()
 
         if len(skycoord) == 0:
             raise NoPoints
 
-        data_out = np.random.choice(data, size=len(skycoord), replace=True)
+        # load full catalogue to shuffle
+        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
+
+        table = misc.remove_columns(table, self.config['skip'])
+        dtype = table.dtype
 
         skycoord_name = self.config['skycoord_name']
-        dim = len(skycoord_name)
-        if dim == 1:
+        skycoord_dim = len(skycoord_name)
+
+        if skycoord_dim == 1:
+            skycoord_dtype = np.dtype([(skycoord_name[0], np.dtype((np.float64, 2)))])
+        elif skycoord_dim == 2:
+            alpha, delta = skycoord_name
+            skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
+        else:
+            raise ValueError("skycoord_name must be length 1 or 2, not %s"%skycoord_dim)
+
+        try:
+            dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
+        except ValueError:
+            pass
+
+        data_out = np.zeros(len(skycoord), dtype=dtype)
+
+        shuffle = np.random.choice(table, size=len(skycoord), replace=True)
+
+        for name in shuffle.dtype.names:
+            data_out[name] = shuffle[name]
+
+
+        if skycoord_dim == 1:
             data_out[skycoord_name[0]] = skycoord
         else:
-            for i in range(dim):
+            for i in range(skycoord_dim):
                 data_out[skycoord_name[i]] = skycoord[:, i]
 
         self.logger.info("Wrote shuffled catalogue nobj=%i: %s", len(data_out), self.config['out_cat'])
