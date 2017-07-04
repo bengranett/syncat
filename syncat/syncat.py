@@ -44,8 +44,8 @@ GMMNN_MODE = 'nn'
 				help="generate samples and save output catalogue.")
 @add_param('fit', default=False, type='bool',
 						help="fit a catalogue model and save to file.")
-@add_param('density', metavar='x', default=0, type=float, help="number density of objects to synthesize (n/sqr deg)")
-@add_param('count', alias='n', metavar='n', default=0, type=float, help="number of objects to synthesize")
+@add_param('density', metavar='x', default=-1, type=float, help="number density of objects to synthesize (n/sqr deg)")
+@add_param('count', alias='n', metavar='n', default=-1, type=float, help="number of objects to synthesize")
 @add_param('skip', metavar='name', default=['id', 'num', 'skycoord', 'alpha', 'delta'], 
 				nargs='*', help='names of parameters that should be ignored')
 @add_param('add_columns', metavar='name', default=[], nargs='*', help='add these columns with zeros if they are present in input catalogue')
@@ -72,15 +72,31 @@ class SynCat(pype):
 		self._setup_logging()
 		self.logger.info("Starting SynCat")
 
+		self.check_params()
+
 		if mask is None:
 			mask = self.load_mask()
 
 		self.synthesizer = self.modes[config['method']](self.config, mask)
 
+
+	def check_params(self):
+		""" """
+		if self.config['count'] <= 0:
+			self.config['count'] = None
+
+		if self.config['density'] <= 0:
+			self.config['density'] = None
+
 	@staticmethod
 	def check_config(config):
 		""" """
-		pass
+		if config['count'] <= 0 and config['density'] <= 0:
+			raise ValueError('Nothing to sample! Must give density or count.')
+
+		if config['count'] is None and config['density'] is None:
+			raise ValueError('Nothing to sample! Must give density or count.')
+
 
 	def load_mask(self):
 		""" """
