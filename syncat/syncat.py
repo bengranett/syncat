@@ -21,6 +21,8 @@ import methods.shuffle as shuffle
 import methods.conditional_gmm as conditional_gmm
 import methods.gmm_nn as gmm_nn
 
+import errors
+
 import time
 
 SHUFFLE_MODE = 'shuffle'
@@ -117,7 +119,7 @@ class SynCat(pype):
 			self.logger.info("Starting sampling")
 			try:
 				data = self.synthesizer.sample()
-			except NoPoints:
+			except errors.NoPoints:
 				data = []
 				self.logger.warning("No points were sampled!  Perhaps mask does not align with pointings.")
 			self.write_cat(data)

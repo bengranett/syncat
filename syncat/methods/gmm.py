@@ -197,7 +197,7 @@ class GaussianMixtureModel(pype):
         else:
             count = self.config['count']
 
-        if len(skycoord) == 0:
+        if count == 0:
             raise NoPoints
 
         randoms = self.syn.sample(n=count)

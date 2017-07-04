@@ -471,7 +471,7 @@ class Syn(pype):
 
 		count_total = 0
 
-		syndata = np.zeros(n, dtype=self.dtype)
+		syndata = np.zeros(int(n), dtype=self.dtype)
 
 		while count_total < n:
 			for fit in self.fit_results:
