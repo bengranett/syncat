@@ -98,11 +98,11 @@ class Syn(pype):
 			self.logger.info("Loaded %s, got %i fit results.", path, len(self.fit_results))
 
 	def dump(self):
-		return self.labels, self.fit_results, self.other_dists, self.hints, self.dtype, self.lookup
+		return self.labels, self.fit_results, self.other_dists, self.hints, self.dtype
 
 	def undump(self, dump):
 		""" """
-		self.labels, self.fit_results, self.other_dists, self.hints, self.dtype, self.lookup = dump
+		self.labels, self.fit_results, self.other_dists, self.hints, self.dtype = dump
 
 	def save(self, path=None):
 		""" Save the catalogue model file. """
@@ -209,6 +209,8 @@ class Syn(pype):
 		n, dim = data.shape
 		assert dim < n
 
+		self.logger.debug("data size %i %i", dim, n)
+
 		# compute number of batches
 		nbatch = max(1, int(n * 1. / self.config['batch_size']))
 		assert nbatch >= 1
@@ -233,6 +235,8 @@ class Syn(pype):
 
 		bins = np.linspace(0, n, nbatch + 1).astype(int)
 
+		self.logger.debug("batch bins %i (batch size %i)", len(bins), self.config['batch_size'])
+
 		dt = 0
 		count = 0
 		for i, j in zip(bins[:-1], bins[1:]):
@@ -253,9 +257,10 @@ class Syn(pype):
 			fit.transform = logtransform
 			fit.invtransform = invlogtransform
 
-			fit.hash = hash(tuple(fit.insert_cmd))
+			# fit.hash = hash(tuple(fit.insert_cmd))
 
 			self.fit_results.append(fit)
+			self.logger.debug("done batch %i of %i", count, len(bins))
 
 	def _branch_fit(self, data, labels, column=0, insert=[]):
 		""" This routine is called recursively.  
@@ -405,12 +410,6 @@ class Syn(pype):
 			except IndexError:
 				break
 			self.single_fit(d, labels=labels, insert_cmd=ins_cmd)
-
-		self.lookup = {}
-		for fit in self.fit_results:
-			if fit.hash not in self.lookup:
-				self.lookup[fit.hash] = []
-			self.lookup[fit.hash].append(fit)
 
 		if self.config['verbose'] > 0:
 			sys.stderr.write("\n")
