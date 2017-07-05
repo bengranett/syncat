@@ -145,13 +145,9 @@ class GaussianMixtureModel(pype):
 
         if self.config['sample_sky'] and self.config['skycoord_name'] not in dtype.names:
             skycoord_name = self.config['skycoord_name']
-            dim = len(skycoord_name)
 
-            if dim == 1:
-                skycoord_dtype = np.dtype([(skycoord_name[0], np.dtype((np.float64, 2)))])
-            elif dim == 2:
-                alpha, delta = skycoord_name
-                skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
+            alpha, delta = skycoord_name
+            skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
 
             dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
 
@@ -191,12 +187,7 @@ class GaussianMixtureModel(pype):
         if self.config['sample_sky']:
             skycoord_name = self.config['skycoord_name']
 
-            dim = len(skycoord_name)
-
-            if dim == 1:
-                randoms[skycoord_name[0]] = skycoord
-            else:
-                for i in range(dim):
-                    randoms[skycoord_name[i]] = skycoord[:,i]
+            for i in range(len(skycoord_name)):
+                randoms[skycoord_name[i]] = skycoord[:,i]
 
         return randoms

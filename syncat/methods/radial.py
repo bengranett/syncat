@@ -137,12 +137,8 @@ class Radial(pype):
         data_out = OrderedDict({'z': redshift})
 
         skycoord_name = self.config['skycoord_name']
-        dim = len(skycoord_name)
-        if dim == 1:
-            data_out[skycoord_name[0]] = skycoord
-        else:
-            for i in range(dim):
-                data_out[skycoord_name[i]] = skycoord[:, i]
+        for i in range(len(skycoord_name)):
+            data_out[skycoord_name[i]] = skycoord[:, i]
 
         for column, t in add_columns:
             data_out[column] = np.zeros(len(redshift), dtype=t)

@@ -89,15 +89,9 @@ class Shuffle(pype):
         dtype = table.dtype
 
         skycoord_name = self.config['skycoord_name']
-        skycoord_dim = len(skycoord_name)
 
-        if skycoord_dim == 1:
-            skycoord_dtype = np.dtype([(skycoord_name[0], np.dtype((np.float64, 2)))])
-        elif skycoord_dim == 2:
-            alpha, delta = skycoord_name
-            skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
-        else:
-            raise ValueError("skycoord_name must be length 1 or 2, not %s"%skycoord_dim)
+        alpha, delta = skycoord_name
+        skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
 
         try:
             dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
@@ -111,12 +105,8 @@ class Shuffle(pype):
         for name in shuffle.dtype.names:
             data_out[name] = shuffle[name]
 
-
-        if skycoord_dim == 1:
-            data_out[skycoord_name[0]] = skycoord
-        else:
-            for i in range(skycoord_dim):
-                data_out[skycoord_name[i]] = skycoord[:, i]
+        for i in range(len(skycoord_name)):
+            data_out[skycoord_name[i]] = skycoord[:, i]
 
         self.logger.info("Wrote shuffled catalogue nobj=%i: %s", len(data_out), self.config['out_cat'])
 
