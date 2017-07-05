@@ -130,6 +130,7 @@ class GaussianMixtureModel(pype):
         table_dtype = table.dtype
 
         table = misc.remove_columns(table, self.config['skip'])
+        properties = list(table.dtype.names)
 
         if self.logger.isEnabledFor(logging.INFO):
             mesg = ""
