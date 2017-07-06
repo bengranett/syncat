@@ -234,8 +234,12 @@ class Syn(pype):
 				invlogtransform.append((np.log, i))
 
 		bins = np.linspace(0, n, nbatch + 1).astype(int)
-
 		self.logger.debug("batch bins %i (batch size %i)", len(bins), self.config['batch_size'])
+
+		if len(bins) > 1:
+			self.logger.debug("Randomizing catalogue")
+			order = np.random.uniform(0,1,len(data)).argsort()
+			data = data[order]
 
 		dt = 0
 		count = 0
