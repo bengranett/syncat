@@ -125,7 +125,7 @@ class GaussianMixtureModel(pype):
 
         self.logger.info("loading %s", filename)
 
-        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
+        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'], quick=self.config['quick'])
 
         table_dtype = table.dtype
 
@@ -151,9 +151,6 @@ class GaussianMixtureModel(pype):
             skycoord_dtype = np.dtype([(alpha, np.float64), (delta, np.float64)])
 
             dtype = misc.concatenate_dtypes([dtype, skycoord_dtype])
-
-        if self.config['quick']:
-            table = table[:10000]
 
         self.syn.fit(table, dtype=dtype)
 

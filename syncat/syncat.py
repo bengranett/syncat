@@ -48,7 +48,7 @@ ZDIST_MODE = 'radial'
 @add_param('sample_sky', default=True, type='bool', help='sample sky coordinates')
 @add_param('skycoord_name', metavar='name', default=('alpha', 'delta'), nargs='*', help='column name(s) of sky coordinates')
 @add_param('verbose', alias='v', default=0, type=int, help='verbosity level')
-@add_param('quick', default=False, type='bool', help='truncate the catalogue for a quick test run')
+@add_param('quick', default=0, type=int, help='truncate the catalogue for a quick test run')
 @add_param('overwrite', default=False, type='bool', help='overwrite model fit')
 @depends_on(gmm.GaussianMixtureModel, shuffle.Shuffle, radial.Radial)
 class SynCat(pype):

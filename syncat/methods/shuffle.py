@@ -83,7 +83,7 @@ class Shuffle(pype):
             raise NoPoints
 
         # load full catalogue to shuffle
-        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'])
+        table = fileio.read_catalogue(filename, format=self.config['input_format'], columns=self.config['input_columns'], quick=self.config['quick'])
 
         table = misc.remove_columns(table, self.config['skip'])
         dtype = table.dtype
